@@ -6,11 +6,14 @@ src/pinky_wall_parking_perception/pinky_wall_parking_perception/slot_geometry.py
              길이 방향으로 min_overlap 이상 겹치는 직선 2개 (옆 벽 안쪽 면)
 - 뒤 벽    : 옆 벽과 거의 수직, 두 옆 벽 사이를 가로막는 직선 중 가장 가까운 것
 - 입구 중심 = 뒤 벽 앞면에서 칸 깊이 (depth) 만큼 입구 쪽, 두 옆 벽 가운데
-- 후보가 여럿이면 옆 벽 길이 합이 가장 긴 것
+- 후보가 여럿이면 옆 벽 길이 합이 가장 긴 것, 방향은 뒤 벽 법선 (실물에서 옆 벽보다 곧게 보임)
+- 입구 모양 방식 (find_slot_mouth, 칸 밖용): 실물에서는 옆 벽 안쪽 면이 비스듬해 점이 안 돌아오므로
+    뒤 벽 (방향 기준) + 그 앞 depth 에 좌우 하나씩 있는 옆 벽 앞 끝면 (짧은 직선, 각도 25° 까지 허용) 으로 찾음
+- find_slot_any: 옆 벽 방식을 먼저, 없으면 입구 모양 방식
 
 사용:
-  slot = find_slot(segments, 0.190, 0.115, 0.200, math.radians(10), 0.04)
-  center, outward, width, (side_a, side_b), back = slot     # 없으면 None
+  slot = find_slot_any(segments, 0.190, 0.115, 0.200, math.radians(10), 0.04)
+  center, outward, width, (side_a, side_b), back = slot     # 없으면 None (입구 모양: side = 앞 끝면)
 """
 
 # ==================== 표준 라이브러리 ======================
@@ -50,7 +53,9 @@ def find_slot(segments, depth, width_min, width_max, angle_tol, min_overlap):
             mid_lat = np.dot(a.center, lateral) + offset / 2                        # 두 옆 벽 가운데 (폭 방향)
             face    = float(np.dot(back_seg.center, inward))                        # 뒤 벽 앞면 (칸 축 방향)
             center  = mid_lat * lateral + (face - depth) * inward                   # 입구 중심
-            best, best_score = (center, -inward, width, (a, b), back_seg), score
+            normal  = np.array([-back_seg.direction[1], back_seg.direction[0]])     # 뒤 벽 법선 (가장 곧은 면)
+            normal  = normal if np.dot(normal, inward) > 0 else -normal
+            best, best_score = (center, -normal, width, (a, b), back_seg), score
     return best
 
 def _find_back(segments, a, b, axis, lateral, offset, angle_tol, a_range, b_range):
@@ -79,3 +84,45 @@ def _find_back(segments, a, b, axis, lateral, offset, angle_tol, a_range, b_rang
         if found is None or dist < found[2]:
             found = (c, inward, dist)
     return None if found is None else found[:2]
+
+# =========================================================
+# 입구 모양 방식: 뒤 벽 기준 + 앞 끝면 2개 (칸 밖용)
+# =========================================================
+def find_slot_mouth(segments, depth, width_min, width_max, angle_tol,
+                    face_len=(0.02, 0.09), face_tol=math.radians(25), depth_tol=0.03, back_min=0.06):
+    """뒤 벽 앞 depth 에 앞 끝면이 좌우 하나씩 -> find_slot 과 같은 형식. 방향은 뒤 벽 법선."""
+    faces = [f for f in segments if face_len[0] <= f.length <= face_len[1]]
+    best, best_err = None, depth_tol
+    for c in segments:                                                              # c: 뒤 벽 후보
+        if not back_min <= c.length <= width_max + 0.02:
+            continue
+        along   = c.direction                                                       # 칸 폭 방향
+        normal  = np.array([-along[1], along[0]])                                   # 칸 축 방향
+        left, right = [], []
+        for f in faces:                                                             # 앞 끝면: 각도는 느슨하게
+            if f is c or abs(math.remainder(f.angle - c.angle, math.pi)) > face_tol:
+                continue
+            s = float(np.dot(f.center - c.center, normal))                          # 뒤 벽 -> 앞 끝면 (부호 있음)
+            if abs(abs(s) - depth) > depth_tol:
+                continue
+            e = sorted([np.dot(f.start - c.center, along), np.dot(f.end - c.center, along)])
+            if e[0] > 0:
+                right.append((f, s, e[0]))                                          # 안쪽 끝 = 뒤 벽 가운데 쪽
+            elif e[1] < 0:
+                left.append((f, s, e[1]))
+        for fl, sl, il in left:
+            for fr, sr, ir in right:
+                gap, ms = ir - il, (sl + sr) / 2                                    # 칸 폭, 입구 선 위치
+                err = abs(abs(ms) - depth)
+                if sl * sr <= 0 or not width_min - 0.02 <= gap <= width_max or err >= best_err:
+                    continue
+                outward = normal if ms > 0 else -normal                             # 칸 안 -> 입구
+                center  = c.center + ms * normal + (il + ir) / 2 * along            # 앞 끝면 안쪽 끝의 가운데
+                best, best_err = (center, outward, gap, (fl, fr), c), err
+    return best
+
+def find_slot_any(segments, depth, width_min, width_max, angle_tol, min_overlap):
+    """옆 벽 방식 (칸 안·정면) 을 먼저, 없으면 입구 모양 방식 (칸 밖)."""
+    return (find_slot(segments, depth, width_min, width_max, angle_tol, min_overlap)
+            or find_slot_mouth(segments, depth, width_min, width_max, angle_tol))
+

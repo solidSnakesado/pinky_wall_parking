@@ -10,9 +10,11 @@ src/pinky_wall_parking_perception/pinky_wall_parking_perception/line_extraction.
     5. Merge: 이웃한 조각이 거의 같은 직선이면 합침
     6. 점 수/길이가 너무 작은 조각은 버림
 - 기준값 (m, rad) 은 LineParams 로 바꿀 수 있음 (칸 벽 190 mm, 거리 0.05 ~ 1 m 기준 기본값)
+- 실물 RPLIDAR C1 근거리 보정 (선택, near=REAL_NEAR): 녹화 c1~c5 로 잰 거리별 오차를 거리값에서 뺌
+    6 cm 미만 버림 (값이 들쭉날쭉), 6~10 cm 보정 (약 9 -> 3 mm), 10 cm 이상 그대로
 
 사용:
-  points = scan_to_points(ranges, angle_min, angle_increment, range_min, range_max)
+  points = scan_to_points(ranges, angle_min, angle_increment, range_min, range_max, near=REAL_NEAR)
   segments = extract_lines(points, LineParams())
 """
 
@@ -33,7 +35,11 @@ class LineParams:
     merge_angle:    float = math.radians(5.0)                                       # 합칠 때 두 직선 방향 차 최대 (rad)
     merge_dist:     float = 0.015                                                   # 합칠 때 두 직선 사이 거리 최대 (m)
     min_points:     int   = 4                                                       # 조각 최소 점 수
-    min_length:     float = 0.05                                                    # 조각 최소 길이 (m)
+    min_length:     float = 0.03                                                    # 조각 최소 길이 (m), 앞 끝면 50 mm
+
+# 실물 근거리 보정표: (버릴 거리 m, [(거리 m, 빼는 양 m), ...]), 사이는 직선 보간, 마지막 뒤는 0
+REAL_NEAR = (0.060, [(0.065, 0.0095), (0.075, 0.0085), (0.085, 0.0034),
+                     (0.095, 0.0034), (0.105, 0.0)])
 
 # =========================================================
 # 직선 조각 (결과)
@@ -57,11 +63,16 @@ class Segment:
 # =========================================================
 # 거리값 -> 점
 # =========================================================
-def scan_to_points(ranges, angle_min, angle_increment, range_min, range_max):
-    """LaserScan 값 -> (N, 2) 배열. 쓸 수 없는 값은 NaN 으로 남겨 끊김으로 씀."""
+def scan_to_points(ranges, angle_min, angle_increment, range_min, range_max, near=None):
+    """LaserScan 값 -> (N, 2) 배열. 쓸 수 없는 값은 NaN 으로 남겨 끊김으로 씀. near: 근거리 보정표."""
     ranges  = np.asarray(ranges, dtype=float)
     angles  = angle_min + angle_increment * np.arange(len(ranges))                  # 광선마다 각도
     valid   = np.isfinite(ranges) & (ranges >= range_min) & (ranges <= range_max)
+    if near is not None:
+        cut, table = near
+        valid  &= ranges >= cut                                                     # 너무 가까운 값 버림
+        r_tab, d_tab = np.array(table).T
+        ranges  = ranges - np.interp(ranges, r_tab, d_tab, left=d_tab[0], right=0.0)
     points  = np.full((len(ranges), 2), np.nan)
     points[valid, 0] = ranges[valid] * np.cos(angles[valid])
     points[valid, 1] = ranges[valid] * np.sin(angles[valid])
