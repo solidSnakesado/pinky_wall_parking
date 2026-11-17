@@ -12,6 +12,7 @@ src/pinky_wall_parking_perception/pinky_wall_parking_perception/bag_eval.py - �
               좌우 = 로봇 중심이 칸 가운데 선에서 벗어난 거리 (mm), 폭 (mm)
     실측    : 파일 이름의 d<mm> (뒤 끝 거리), in<mm> (칸 안), a<deg> (각도) 를 함께 출력
 - 라이다 -> base_link 변환은 실물 tf 로 확인한 값 (x -0.017 m, yaw 180 deg) 을 기본값으로 씀
+- 실물 근거리 보정 (REAL_NEAR) 기본 켬, --no-near 로 끔. 칸 찾기는 find_slot_any (옆 벽 / 입구 모양)
 
 실행:
   ros2 run pinky_wall_parking_perception bag_eval ~/pinky_wall_parking/runs/bags/p*
@@ -34,8 +35,8 @@ from rosidl_runtime_py.utilities import get_message                             
 
 # ==================== 이 패키지 ============================
 from pinky_wall_parking_perception.line_extraction import (                         # 직선 추출
-    LineParams, extract_lines, scan_to_points)
-from pinky_wall_parking_perception.slot_geometry import find_slot                   # 칸 모양 맞추기
+    LineParams, REAL_NEAR, extract_lines, scan_to_points)
+from pinky_wall_parking_perception.slot_geometry import find_slot_any               # 칸 모양 맞추기
 
 ROBOT_REAR = -0.076                                                                 # base_link 기준 로봇 뒤 끝 x (m)
 
@@ -81,13 +82,14 @@ def analyze(path, args, params):
 
     counts, found, rms_all = [], [], []
     for m in scans:
-        p = scan_to_points(m.ranges, m.angle_min, m.angle_increment, m.range_min, m.range_max)
+        p = scan_to_points(m.ranges, m.angle_min, m.angle_increment, m.range_min, m.range_max,
+                           near=None if args.no_near else REAL_NEAR)
         p = np.column_stack((c * p[:, 0] - s * p[:, 1] + args.laser_x,
                              s * p[:, 0] + c * p[:, 1]))                            # base_link 좌표
         segments = extract_lines(p, params)
         counts.append(len(segments))
-        slot = find_slot(segments, args.depth, args.width_min, args.width_max,
-                         math.radians(args.angle_tol), args.min_overlap)
+        slot = find_slot_any(segments, args.depth, args.width_min, args.width_max,
+                             math.radians(args.angle_tol), args.min_overlap)
         if slot is not None:
             *values, rms = robot_values(slot)
             found.append(values)
@@ -127,11 +129,12 @@ def main():
     parser.add_argument("--min-overlap", type=float, default=0.04)
     parser.add_argument("--laser-x", type=float, default=-0.017, help="laser x in base_link (m)")
     parser.add_argument("--laser-yaw", type=float, default=180.0, help="laser yaw in base_link (deg)")
+    parser.add_argument("--no-near", action="store_true", help="disable real near-range correction")
     args = parser.parse_args()
     params = LineParams(max_gap=args.max_gap, split_dist=args.split_dist, merge_dist=args.merge_dist,
                         min_points=args.min_points, min_length=args.min_length)
     print(f"기준값: split {args.split_dist}, merge {args.merge_dist}, gap {args.max_gap}, "
-          f"min_points {args.min_points}, min_length {args.min_length}")
+          f"min_points {args.min_points}, min_length {args.min_length}, near {not args.no_near}")
     for path in sorted(args.bags):
         analyze(path, args, params)
 

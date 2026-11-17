@@ -8,11 +8,13 @@ src/pinky_wall_parking_perception/pinky_wall_parking_perception/slot_detector.py
 - 방법
     1. tf2 로 라이다 좌표 (rplidar_link, 뒤로 돌려 장착) -> base_link 변환 (고정 변환, 처음 한 번)
     2. line_extraction 으로 직선 조각 추출 (Split-and-Merge + 최소제곱)
-    3. slot_geometry 로 칸 모양 맞추기 (나란한 옆 벽 2개 + 수직 뒤 벽 -> 입구 중심·방향·폭)
+    3. slot_geometry 로 칸 모양 맞추기 (나란한 옆 벽 2개 + 수직 뒤 벽, 없으면 옆 벽 앞 끝면 2개 + 뒤 벽)
+- 실물은 near_correction:=true (RPLIDAR C1 근거리 보정, 6 cm 미만 버림), 시뮬은 false (기본)
 - 결과는 base_link 기준 (측정 그대로): 4단계 제어기가 바로 쓰고, 평가도 로봇 기준으로 비교
 
 실행:
   ros2 run pinky_wall_parking_perception slot_detector --ros-args -p use_sim_time:=true
+  실물: ros2 run pinky_wall_parking_perception slot_detector --ros-args -p near_correction:=true
 """
 
 # ==================== 표준 라이브러리 ======================
@@ -34,8 +36,8 @@ from visualization_msgs.msg import Marker, MarkerArray                          
 
 # ==================== 이 패키지 ============================
 from pinky_wall_parking_perception.line_extraction import (                         # 직선 추출
-    LineParams, extract_lines, scan_to_points)
-from pinky_wall_parking_perception.slot_geometry import find_slot                   # 칸 모양 맞추기
+    LineParams, REAL_NEAR, extract_lines, scan_to_points)
+from pinky_wall_parking_perception.slot_geometry import find_slot_any               # 칸 모양 맞추기
 
 # =========================================================
 # ROS 2 노드
@@ -50,6 +52,8 @@ class SlotDetector(Node):
         self.width_max      = self.declare_parameter("width_max", 0.200).value      # 벽 두께 포함 폭은 제외
         self.angle_tol      = math.radians(self.declare_parameter("angle_tol_deg", 10.0).value)
         self.min_overlap    = self.declare_parameter("min_overlap", 0.04).value     # 옆 벽 겹침 최소
+        near                = self.declare_parameter("near_correction", False).value
+        self.near           = REAL_NEAR if near else None                           # 실물 근거리 보정
         defaults            = LineParams()
         self.line_params    = LineParams(
             max_gap     = self.declare_parameter("max_gap", defaults.max_gap).value,
@@ -68,7 +72,7 @@ class SlotDetector(Node):
         self.marker_pub     = self.create_publisher(MarkerArray, "slot/markers", 10)
         self.create_subscription(LaserScan, "scan", self.on_scan, qos_profile_sensor_data)
         self.get_logger().info(f"slot_detector ready: depth {self.slot_depth} m, "
-                               f"width {self.width_min}~{self.width_max} m")
+                               f"width {self.width_min}~{self.width_max} m, near_correction {near}")
 
     # ---- 라이다 -> base_link 변환 (고정) ----------------------
     def lookup_laser(self, frame):
@@ -90,12 +94,12 @@ class SlotDetector(Node):
                 return
         c, s, tx, ty = self.laser_to_base
         points  = scan_to_points(msg.ranges, msg.angle_min, msg.angle_increment,
-                                 msg.range_min, msg.range_max)                      # 라이다 좌표
+                                 msg.range_min, msg.range_max, near=self.near)      # 라이다 좌표
         points  = np.column_stack((c * points[:, 0] - s * points[:, 1] + tx,
                                    s * points[:, 0] + c * points[:, 1] + ty))       # base_link 좌표 (NaN 유지)
         segments = extract_lines(points, self.line_params)
-        slot    = find_slot(segments, self.slot_depth, self.width_min, self.width_max,
-                            self.angle_tol, self.min_overlap)
+        slot    = find_slot_any(segments, self.slot_depth, self.width_min, self.width_max,
+                                self.angle_tol, self.min_overlap)
         self.publish_markers(msg.header.stamp, segments, slot)
         if slot is None:
             return
