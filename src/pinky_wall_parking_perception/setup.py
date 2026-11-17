@@ -29,6 +29,7 @@ setup(
         'console_scripts': [
             "slot_detector = pinky_wall_parking_perception.slot_detector:main",
             "slot_eval = pinky_wall_parking_perception.slot_eval:main",
+            "bag_eval = pinky_wall_parking_perception.bag_eval:main",
         ],
     },
 )
