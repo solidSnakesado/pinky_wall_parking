@@ -1,0 +1,12 @@
+# colcon 기본값 (이 저장소 전용)
+# 사용: export COLCON_DEFAULTS_FILE=$HOME/pinky_wall_parking/colcon_defaults.yaml
+#
+# PC에서 빌드하지 않는 핑키 프로 패키지를 항상 제외한다.
+#   pinky_gz_sim       : Gazebo 전용 (MuJoCo만 사용)
+#   pinky_sensor_adc   : 핑키 본체 전용 (초음파·적외선)
+#   pinky_imu_bno055   : 핑키 본체 전용 (IMU)
+#   pinky_lamp_control : 핑키 본체 전용 (램프)
+build:
+  packages-ignore: [pinky_gz_sim, pinky_sensor_adc, pinky_imu_bno055, pinky_lamp_control]
+test:
+  packages-ignore: [pinky_gz_sim, pinky_sensor_adc, pinky_imu_bno055, pinky_lamp_control]
