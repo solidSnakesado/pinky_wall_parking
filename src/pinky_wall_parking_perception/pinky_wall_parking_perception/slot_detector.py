@@ -10,10 +10,12 @@ src/pinky_wall_parking_perception/pinky_wall_parking_perception/slot_detector.py
     2. line_extraction 으로 직선 조각 추출 (Split-and-Merge + 최소제곱)
     3. slot_geometry 로 칸 모양 맞추기 (나란한 옆 벽 2개 + 수직 뒤 벽, 없으면 옆 벽 앞 끝면 2개 + 뒤 벽)
 - 실물은 near_correction:=true (RPLIDAR C1 근거리 보정, 6 cm 미만 버림), 시뮬은 false (기본)
+- 실물은 laser_yaw_offset_deg:=-2.2 (라이다 장착 각도 보정, tf yaw 에 더함), 시뮬은 0 (기본)
 - 결과는 base_link 기준 (측정 그대로): 4단계 제어기가 바로 쓰고, 평가도 로봇 기준으로 비교
 
 실행:
-  ros2 run pinky_wall_parking_perception slot_detector --ros-args -p use_sim_time:=true
+실물: ros2 run pinky_wall_parking_perception slot_detector --ros-args -p near_correction:=true \
+          -p laser_yaw_offset_deg:=-2.2
   실물: ros2 run pinky_wall_parking_perception slot_detector --ros-args -p near_correction:=true
 """
 
@@ -54,6 +56,8 @@ class SlotDetector(Node):
         self.min_overlap    = self.declare_parameter("min_overlap", 0.04).value     # 옆 벽 겹침 최소
         near                = self.declare_parameter("near_correction", False).value
         self.near           = REAL_NEAR if near else None                           # 실물 근거리 보정
+        yaw_offset_deg      = self.declare_parameter("laser_yaw_offset_deg", 0.0).value
+        self.yaw_offset     = math.radians(yaw_offset_deg)                          # 실물 라이다 장착 각도 보정
         defaults            = LineParams()
         self.line_params    = LineParams(
             max_gap     = self.declare_parameter("max_gap", defaults.max_gap).value,
@@ -72,7 +76,8 @@ class SlotDetector(Node):
         self.marker_pub     = self.create_publisher(MarkerArray, "slot/markers", 10)
         self.create_subscription(LaserScan, "scan", self.on_scan, qos_profile_sensor_data)
         self.get_logger().info(f"slot_detector ready: depth {self.slot_depth} m, "
-                               f"width {self.width_min}~{self.width_max} m, near_correction {near}")
+                               f"width {self.width_min}~{self.width_max} m, near_correction {near}, "
+                               f"laser_yaw_offset {yaw_offset_deg} deg")
 
     # ---- 라이다 -> base_link 변환 (고정) ----------------------
     def lookup_laser(self, frame):
@@ -84,6 +89,7 @@ class SlotDetector(Node):
             return None
         q   = t.rotation
         yaw = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
+        yaw += self.yaw_offset                                                      # tf yaw + 장착 보정
         return (math.cos(yaw), math.sin(yaw), t.translation.x, t.translation.y)
 
     # ---- 스캔 처리 --------------------------------------------
