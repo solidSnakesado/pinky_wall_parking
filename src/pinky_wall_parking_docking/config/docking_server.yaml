@@ -1,0 +1,51 @@
+# src/pinky_wall_parking_docking/config/docking_server.yaml - 벽 주차 칸 후면 진입 (Nav2 Docking Server)
+#
+# - 칸 입구 감지: slot_detector /slot/pose (base_link, x = 칸 밖) -> detected_dock_pose 로 remap
+# - 목표 자세 (dock pose) = 감지 자세를 yaw pi 로 돌림 (x = 칸 안) + x 0.102 m
+#     -> base_link 가 입구에서 102 mm 안쪽 = 로봇 뒷면이 뒤 벽 앞 12 mm (칸 깊이 190, 뒤 끝 76)
+# - 정지 판정 (SlotDock): 칸 축 방향 남은 거리 <= docking_tolerance, 남은 거리 35 mm 부터 목표 자세 고정 (마지막 구간 odom)
+# - 정렬 위치 (staging) = 목표 + x -0.402 m (입구 밖 300 mm), yaw + pi (뒷면이 칸을 향함)
+# - 충돌 검사는 끔 (costmap 없음), 안전은 이후 collision_monitor 가 맡음
+
+docking_server:
+  ros__parameters:
+    controller_frequency: 20.0          # 제어 주기 (Hz), 라이다 10 Hz 의 2 배
+    initial_perception_timeout: 3.0     # 처음 칸 감지 대기 (s)
+    wait_charge_timeout: 1.0            # 충전 대기 (비충전 칸이라 바로 끝남)
+    dock_approach_timeout: 40.0         # 진입 제한 시간 (s)
+    undock_linear_tolerance: 0.02       # 정렬 위치 복귀 허용 (m)
+    undock_angular_tolerance: 0.05      # 정렬 위치 복귀 허용 (rad)
+    max_retries: 2                      # 실패 시 정렬 위치로 돌아가 재시도 횟수
+    base_frame: "base_link"
+    fixed_frame: "odom"                 # 감지 자세를 odom 으로 바꿔 필터링
+    dock_backwards: true                # 후진 진입
+    dock_prestaging_tolerance: 0.5      # navigate_to_staging_pose 사용 시 생략 거리
+
+    dock_plugins: ["slot_dock"]
+    slot_dock:
+      plugin: "pinky_wall_parking_dock_plugin::SlotDock"
+      use_external_detection_pose: true
+      external_detection_timeout: 0.5   # 감지가 이보다 오래 없으면 실패 -> 재시도 (s)
+      external_detection_translation_x: 0.102
+      external_detection_translation_y: 0.0
+      external_detection_rotation_yaw: 3.14159
+      external_detection_rotation_pitch: 0.0
+      external_detection_rotation_roll: 0.0
+      filter_coef: 0.3                  # 감지 자세 저역 필터 (클수록 새 값 반영 빠름)
+      docking_threshold: 0.015          # 원본 판정용 (SlotDock 에서는 사용 안 함)
+      lock_remaining_distance: 0.035    # 남은 거리 35 mm 부터 목표 자세 고정 (라이다 -> 뒤 벽 약 10.5 cm)
+      docking_tolerance: 0.002          # 칸 축 방향 남은 거리 2 mm 안이면 정지 (m)
+      staging_x_offset: -0.402
+      staging_yaw_offset: 3.14159
+
+    controller:                         # graceful 제어 (Nav2 graceful controller 와 같은 제어 법칙)
+      k_phi: 3.0
+      k_delta: 2.0
+      beta: 0.4
+      lambda: 2.0
+      v_linear_min: 0.02                # 직진 속도 (m/s)
+      v_linear_max: 0.06
+      v_angular_max: 0.5                # 회전 속도 (rad/s)
+      slowdown_radius: 0.10             # 목표 0.10 m 안부터 감속
+      rotate_to_heading_angular_vel: 0.5
+      use_collision_detection: false    # costmap 없음
