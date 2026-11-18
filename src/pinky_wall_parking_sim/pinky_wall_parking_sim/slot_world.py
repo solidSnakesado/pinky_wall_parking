@@ -10,6 +10,8 @@ src/pinky_wall_parking_sim/pinky_wall_parking_sim/slot_world.py - 종이벽돌 �
 - 칸 뒤 벽은 방 뒤 벽에 붙임, 칸 왼쪽 벽은 방 옆 벽에서 side_gap 만큼 띄움
 - 칸 깊이 190 mm, 칸 안쪽 폭은 인자 (최대 190 mm = 칸 뒤 벽 길이)
 - 벽돌·방 벽은 link 하나에 visual (색, 카메라에 보임) + collision (라이다·충돌, 화면에서는 숨김)
+- 시작 위치: 로봇은 원점 고정 (핑키 설정), 월드 전체를 model pose 로 옮겨 칸 입구 기준 로봇 자세를 맞춤
+    start = (dist, lat, yaw): 입구 중심 -> 바깥쪽 dist, 옆 lat, yaw 0 = 로봇 뒷면이 칸을 향함
 
 좌표 (월드, m, 로봇 시작 = 원점 +x 방향, 사진 기준 왼쪽 = +x, 아래 = +y):
   흰 판 x -0.10 ~ +0.80, y -0.40 ~ +0.20
@@ -18,10 +20,12 @@ src/pinky_wall_parking_sim/pinky_wall_parking_sim/slot_world.py - 종이벽돌 �
 
 실행 (파일 확인용):
   python3 slot_world.py --width 130 --out /tmp/slot_130.world
+  python3 slot_world.py --width 131 --start 0.25 0.0 0 --out /tmp/slot_start.world
 """
 
 # ==================== 표준 라이브러리 ======================
 import argparse                                                                     # 명령줄 인자
+import math                                                                         # 시작 위치 회전
 from pathlib import Path                                                            # 파일 경로
 import xml.etree.ElementTree as ET                                                  # SDF (XML) 작성
 
@@ -85,6 +89,27 @@ def wall_layout(width, slot_x, slot_y):
     }
 
 # =========================================================
+# 시작 위치 -> 월드 model pose, 칸 입구 정답 자세
+# =========================================================
+def compose(a, b):
+    """2D 자세 a * b. 자세 = (x, y, yaw)."""
+    c, s = math.cos(a[2]), math.sin(a[2])
+    return (a[0] + c * b[0] - s * b[1], a[1] + s * b[0] + c * b[1], a[2] + b[2])
+
+def inverse(a):
+    """2D 자세 a 의 역."""
+    c, s = math.cos(a[2]), math.sin(a[2])
+    return (-c * a[0] - s * a[1], s * a[0] - c * a[1], -a[2])
+
+def start_layout(width, side_gap=SIDE_GAP, start=None):
+    """start (dist, lat, yaw) m, rad -> (model pose, 칸 입구 자세) 월드 기준. None 이면 원래 배치."""
+    entrance = (*slot_opening(width, side_gap), math.pi / 2)                        # 원래 배치: 바깥 = +y
+    if start is None:
+        return (0.0, 0.0, 0.0), entrance
+    entrance_new = inverse(start)                                                   # start = 칸 입구 기준 로봇, 로봇 = 원점
+    return compose(entrance_new, inverse(entrance)), entrance_new
+
+# =========================================================
 # 상자 하나 = SDF link (collision 은 선택)
 # =========================================================
 def add_box(model, name, center, size, color, collision=True):
@@ -123,13 +148,15 @@ def add_room(model):
 # =========================================================
 # SDF 문자열 만들기
 # =========================================================
-def build_slot_sdf(width, side_gap=SIDE_GAP):
-    """칸 폭 width (m), 방 옆 벽과의 틈 side_gap (m) -> SDF 문자열."""
+def build_slot_sdf(width, side_gap=SIDE_GAP, start=None):
+    """칸 폭 width (m), 방 옆 벽과의 틈 side_gap (m), 시작 위치 start -> SDF 문자열."""
     slot_x, slot_y = slot_opening(width, side_gap)
+    pose, _ = start_layout(width, side_gap, start)
     sdf     = ET.Element("sdf", version="1.6")
     world   = ET.SubElement(sdf, "world", name="wall_slot")
     model   = ET.SubElement(world, "model", name="slot")
     ET.SubElement(model, "static").text = "true"                                    # 움직이지 않는 벽
+    ET.SubElement(model, "pose").text = f"{pose[0]:.4f} {pose[1]:.4f} 0 0 0 {pose[2]:.6f}"
     add_room(model)
     for wall, (x, y, sx, sy) in wall_layout(width, slot_x, slot_y).items():
         for layer in range(LAYERS):                                                 # 아래 단부터
@@ -142,11 +169,11 @@ def build_slot_sdf(width, side_gap=SIDE_GAP):
 # =========================================================
 # SDF 파일로 저장
 # =========================================================
-def write_slot_world(path, width, side_gap=SIDE_GAP):
+def write_slot_world(path, width, side_gap=SIDE_GAP, start=None):
     """SDF 를 path 에 저장하고 Path 반환."""
     path = Path(path).expanduser()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(build_slot_sdf(width, side_gap))
+    path.write_text(build_slot_sdf(width, side_gap, start))
     return path
 
 # =========================================================
@@ -156,11 +183,13 @@ def main():
     parser = argparse.ArgumentParser(description="Write a wall slot SDF world")
     parser.add_argument("--width", type=float, default=150.0, help="slot inner width (mm)")
     parser.add_argument("--gap", type=float, default=SIDE_GAP * 1000, help="slot <-> side room wall (mm)")
+    parser.add_argument("--start", type=float, nargs=3, help="dist lat (m) yaw (deg)")
     parser.add_argument("--out", default="/tmp/slot.world", help="output SDF path")
     args = parser.parse_args()
     width, gap = args.width / 1000.0, args.gap / 1000.0
-    path = write_slot_world(args.out, width, gap)
-    print(f"wrote {path}, opening center {slot_opening(width, gap)}")
+    start = None if args.start is None else (args.start[0], args.start[1], math.radians(args.start[2]))
+    path = write_slot_world(args.out, width, gap, start)
+    print(f"wrote {path}, entrance pose {start_layout(width, gap, start)[1]}")
 
 if __name__ == "__main__":
     main()
