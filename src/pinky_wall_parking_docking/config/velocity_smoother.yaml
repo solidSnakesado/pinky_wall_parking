@@ -1,0 +1,20 @@
+# src/pinky_wall_parking_docking/config/velocity_smoother.yaml - 실물 속도 명령 안전 단 (Nav2 velocity_smoother)
+#
+# - 입력 /cmd_vel_nav (Docking Server) -> 출력 /cmd_vel (pinky_bringup), 런치에서 remap
+# - velocity_timeout: 명령이 0.2 s 넘게 안 오면 0 으로 감속 정지 (pinky_bringup 에는 이 기능 없음)
+# - 감속 제한을 크게 두어 정지가 늦어지지 않게 함 (0.06 m/s -> 0 약 0.03 s, 약 1 mm)
+# - 순서: [x, y, theta] (차동 구동이라 y = 0)
+
+velocity_smoother:
+  ros__parameters:
+    smoothing_frequency: 50.0           # 출력 주기 (Hz), Docking Server 20 Hz 보다 빠르게
+    scale_velocities: false
+    feedback: "OPEN_LOOP"               # 명령 기준 (odom 피드백 안 씀)
+    max_velocity: [0.10, 0.0, 1.0]      # 최대 속도 (m/s, -, rad/s), Docking 설정 (0.06, 0.5) 보다 여유
+    min_velocity: [-0.10, 0.0, -1.0]
+    max_accel: [1.0, 0.0, 3.0]          # 가속 제한 (m/s^2, -, rad/s^2)
+    max_decel: [-2.0, 0.0, -4.0]        # 감속 제한, 정지를 빠르게
+    deadband_velocity: [0.0, 0.0, 0.0]
+    velocity_timeout: 0.2               # 명령 끊김 판정 (s) -> 0 으로 정지
+    odom_topic: "odom"
+    odom_duration: 0.1
