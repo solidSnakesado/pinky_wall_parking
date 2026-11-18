@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>pinky_wall_parking_docking</name>
+  <version>0.0.0</version>
+  <description>Wall slot parking with the Nav2 docking server</description>
+  <maintainer email="52153542+solidSnakesado@users.noreply.github.com">solidSnakesado</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>launch</depend>
+  <depend>launch_ros</depend>
+  <depend>opennav_docking</depend>
+  <depend>nav2_lifecycle_manager</depend>
+  <depend>nav2_msgs</depend>
+  <depend>pinky_wall_parking_sim</depend>
+  <depend>pinky_wall_parking_perception</depend>
+  <exec_depend>pinky_wall_parking_dock_plugin</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

@@ -1,0 +1,8 @@
+<class_libraries>
+  <library path="slot_dock">
+    <class type="pinky_wall_parking_dock_plugin::SlotDock"
+           base_class_type="opennav_docking_core::ChargingDock">
+      <description>Wall slot dock: lock the dock pose near the goal, stop on goal line crossing</description>
+    </class>
+  </library>
+</class_libraries>
