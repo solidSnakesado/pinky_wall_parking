@@ -10,6 +10,7 @@ src/pinky_wall_parking_docking/launch/docking_real.launch.py - 실물 벽 칸 �
 - 시뮬 시간 쓰지 않음 (use_sim_time false)
 - 목표 깊이 target_depth: 입구 -> base_link 목표 (m). 0.102 = 뒤 벽 틈 12 mm (기본, 시뮬과 같음)
 - 재시도 없음 (max_retries 0): 칸 인식이 끊기면 실패로 끝내고 그 자리에 정지
+- controller.transform_tolerance 0.3 s: 핑키 tf 가 PC 시계보다 평균 0.06 s (가끔 0.15 s) 늦게 와서 기본 0.1 s 로는 제어 실패
 
 실행:
   ros2 launch pinky_wall_parking_docking docking_real.launch.py
@@ -48,7 +49,8 @@ def generate_launch_description():
         Node(package="opennav_docking", executable="opennav_docking", name="docking_server",
              output="screen",
              parameters=[docking, real_time, {"slot_dock.external_detection_translation_x": depth,
-                                              "max_retries": 0}],
+                                              "max_retries": 0,
+                                              "controller.transform_tolerance": 0.3}],
              remappings=[("detected_dock_pose", "/slot/pose"), ("cmd_vel", "cmd_vel_nav")]),
         Node(package="nav2_velocity_smoother", executable="velocity_smoother", name="velocity_smoother",
              output="screen", parameters=[smoother, real_time],
