@@ -31,6 +31,8 @@ import numpy as np                                                              
 @dataclass
 class LineParams:
     max_gap:        float = 0.04                                                    # 이웃 점 최대 간격 (m), 넘으면 덩어리 나눔
+    max_missing:    int   = 1                                                       # 연속으로 빠진 광선을 건너뛰는 최대 개수
+    bridge_gap:     float = 0.010                                                   # 빠진 광선을 건너뛸 때 앞뒤 점 최대 간격 (m)
     split_dist:     float = 0.015                                                   # 직선에서 이 거리보다 먼 점이 있으면 나눔 (m)
     merge_angle:    float = math.radians(5.0)                                       # 합칠 때 두 직선 방향 차 최대 (rad)
     merge_dist:     float = 0.015                                                   # 합칠 때 두 직선 사이 거리 최대 (m)
@@ -100,18 +102,19 @@ def fit_segment(points):
 # =========================================================
 # 덩어리 나누기 (끊김·간격)
 # =========================================================
-def split_clusters(points, max_gap):
-    """NaN 이나 max_gap 보다 먼 간격에서 끊어 연속된 점 덩어리 목록 반환."""
+def split_clusters(points, max_gap, max_missing, bridge_gap):
+    """max_missing 개 넘게 이어진 NaN 이나 max_gap (NaN 직후는 bridge_gap) 보다 먼 간격에서 끊음."""
     clusters, current = [], []
-    previous = None
+    previous, missing = None, 0
     for point in points:
-        if np.isnan(point[0]):                                                      # 측정 없음 -> 끊김
-            previous = None
-            if current:
+        if np.isnan(point[0]):                                                      # 측정 없음
+            missing += 1
+            if missing > max_missing and current:                                   # 연속으로 많이 빠짐 -> 끊김
                 clusters.append(np.array(current))
-                current = []
+                current, previous = [], None
             continue
-        if previous is not None and np.linalg.norm(point - previous) > max_gap:
+        limit, missing = (bridge_gap if missing else max_gap), 0                    # 빠진 광선 직후는 더 좁게
+        if previous is not None and np.linalg.norm(point - previous) > limit:
             clusters.append(np.array(current))
             current = []
         current.append(point)
@@ -176,7 +179,7 @@ def extract_lines(points, params=None):
     """(N, 2) 점 (스캔 순서, NaN = 끊김) -> Segment 목록 (스캔 순서)."""
     params      = params or LineParams()
     segments    = []
-    for cluster in split_clusters(points, params.max_gap):
+    for cluster in split_clusters(points, params.max_gap, params.max_missing, params.bridge_gap):
         pieces  = split_points(cluster, params.split_dist, params.min_points)
         pieces  = sorted(pieces, key=lambda p: _first_index(cluster, p))            # 스캔 순서로 정렬
         for part in merge_pieces(pieces, params):
