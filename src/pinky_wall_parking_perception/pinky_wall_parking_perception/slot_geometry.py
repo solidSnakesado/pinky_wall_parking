@@ -45,7 +45,7 @@ def find_slot(segments, depth, width_min, width_max, angle_tol, min_overlap):
             overlap = min(a_range[1], b_range[1]) - max(a_range[0], b_range[0])
             if overlap < min_overlap:
                 continue
-            back = _find_back(segments, a, b, axis, lateral, offset, angle_tol, a_range, b_range)
+            back = _find_back(segments, a, b, axis, lateral, offset, angle_tol, a_range, b_range, depth)
             if back is None:
                 continue
             back_seg, inward = back                                                 # inward: 입구 -> 뒤 벽 방향
@@ -60,7 +60,7 @@ def find_slot(segments, depth, width_min, width_max, angle_tol, min_overlap):
             best, best_score = (center, -normal, width, (a, b), back_seg), score
     return best
 
-def _find_back(segments, a, b, axis, lateral, offset, angle_tol, a_range, b_range):
+def _find_back(segments, a, b, axis, lateral, offset, angle_tol, a_range, b_range, depth):
     """두 옆 벽 사이를 가로막는 수직 직선 중 가장 가까운 것 -> (뒤 벽, 안쪽 방향) 또는 None."""
     lat_a   = float(np.dot(a.center, lateral))
     lat_lo, lat_hi = sorted([lat_a, lat_a + offset])                                # 칸 안쪽 폭 범위
@@ -82,6 +82,8 @@ def _find_back(segments, a, b, axis, lateral, offset, angle_tol, a_range, b_rang
         elif c_ax <= near_end + 0.02:                                               # 뒤 벽이 축 -쪽
             inward, dist = -axis, near_end - c_ax
         else:
+            continue
+        if dist > depth + 0.03:                                                     # 옆 벽 끝에서 칸 깊이보다 먼 것은 뒤 벽 아님
             continue
         if found is None or dist < found[2]:
             found = (c, inward, dist)
