@@ -8,10 +8,11 @@ src/pinky_wall_parking_docking/launch/docking_real.launch.py - 실물 벽 칸 �
     3. velocity_smoother: /cmd_vel_nav -> /cmd_vel (0.2 s 명령 끊기면 정지, 안전 단)
     4. lifecycle_manager: docking_server, velocity_smoother 자동 활성화
 - 시뮬 시간 쓰지 않음 (use_sim_time false)
-- 목표 깊이 target_depth: 입구 -> base_link 목표 (m). 0.102 = 뒤 벽 틈 12 mm, 0.085 = 약 29 mm (첫 시험)
+- 목표 깊이 target_depth: 입구 -> base_link 목표 (m). 0.102 = 뒤 벽 틈 12 mm (기본, 시뮬과 같음)
+- 재시도 없음 (max_retries 0): 칸 인식이 끊기면 실패로 끝내고 그 자리에 정지
 
 실행:
-  ros2 launch pinky_wall_parking_docking docking_real.launch.py target_depth:=0.085
+  ros2 launch pinky_wall_parking_docking docking_real.launch.py
   주차 요청은 시뮬과 같음 (ros2 action send_goal /dock_robot ...)
 """
 
@@ -38,7 +39,7 @@ def generate_launch_description():
     yaw_offset  = ParameterValue(LaunchConfiguration("laser_yaw_offset_deg"), value_type=float)
 
     return LaunchDescription([
-        DeclareLaunchArgument("target_depth", default_value="0.085",
+        DeclareLaunchArgument("target_depth", default_value="0.102",
                               description="Entrance -> base_link goal depth in m (0.102 = rear gap 12 mm)"),
         DeclareLaunchArgument("laser_yaw_offset_deg", default_value="-2.2",
                               description="Real lidar mounting yaw correction in deg"),
@@ -46,7 +47,8 @@ def generate_launch_description():
              parameters=[real_time, {"near_correction": True, "laser_yaw_offset_deg": yaw_offset}]),
         Node(package="opennav_docking", executable="opennav_docking", name="docking_server",
              output="screen",
-             parameters=[docking, real_time, {"slot_dock.external_detection_translation_x": depth}],
+             parameters=[docking, real_time, {"slot_dock.external_detection_translation_x": depth,
+                                              "max_retries": 0}],
              remappings=[("detected_dock_pose", "/slot/pose"), ("cmd_vel", "cmd_vel_nav")]),
         Node(package="nav2_velocity_smoother", executable="velocity_smoother", name="velocity_smoother",
              output="screen", parameters=[smoother, real_time],
