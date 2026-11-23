@@ -63,8 +63,8 @@ visual:
   # wall-parking: even indoor light like the classroom. Real camera V (0-255): walls 150-200,
   # inner side faces about the same as the back wall, floor 220-235.
   # Headlight follows the rendering camera.
-  light_diffuse: "0.3 0.3 0.3"
+  light_diffuse: "0.2 0.2 0.2"
   headlight:
     ambient: "0.75 0.75 0.75"
-    diffuse: "0.15 0.15 0.15"
-    specular: "0.1 0.1 0.1"
+    diffuse: "0 0 0"
+    specular: "0 0 0"
