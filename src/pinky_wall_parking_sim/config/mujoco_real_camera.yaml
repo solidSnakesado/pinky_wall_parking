@@ -1,0 +1,70 @@
+# Copy of pinky_pro/pinky_mujoco/config/mujoco.yaml (wall-parking ee4c917).
+# Changed for the real Pinky camera (OV5647, 640x480 4:3, estimated before calibration):
+#   camera.height 360 -> 480, camera.horizontal_fov 1.1519 -> 0.934 (53.5 deg).
+#   camera.height 360 -> 480, camera.horizontal_fov 1.1519 -> 0.934 (53.5 deg).
+#   visual (light_diffuse, headlight) added for even indoor light (read by the wall-parking model.py).
+# Keep the rest in sync with the original file.
+# MuJoCo-only settings. No changes to the common URDF are necessary.
+physics:
+  timestep: 0.002
+  gravity: [0, 0, -9.81]
+  integrator: implicitfast
+  iterations: 80
+contact:
+  solref: [0.008, 1]
+  solimp: [0.95, 0.99, 0.001]
+  friction: [0.9, 0.002, 0.0001]
+  wheel_friction: [1.2, 0.002, 0.0001]
+  caster_friction: [0.02, 0.0001, 0.00001]
+joints:
+  damping: 0.0001
+  armature: 0.00001
+motors:
+  velocity_gain: 0.08
+  max_speed: 14
+  max_torque: 0.15
+  # Wheel speed ramp like the real XL330 velocity profile: Profile Acceleration 200
+  # (pinky_bringup/dynamixel_driver.py) x 214.577 rev/min^2 = 42915 rev/min^2 = 74.9 rad/s^2.
+  wheel_accel: 74.9
+spawn:
+  position: [0, 0, 0.030]
+rates:
+  bridge_hz: 100
+  state_hz: 50
+  scan_hz: 10
+lidar:
+  samples: 360
+  range_min: 0.05
+  range_max: 12.0
+control:
+  max_linear: 0.25
+  max_angular: 1.5
+  command_timeout: 0.5
+camera:
+  # Front camera rendered offscreen and published like the Gazebo camera bridge.
+  # Gazebo sensor: 1280x720 @ 30 Hz, horizontal_fov 1.1519 rad, frame front_camera_link.
+  # Defaults here are lighter; raise width/height/fps to match Gazebo if needed.
+  enabled: true
+  link: front_camera_link
+  width: 640
+  height: 480
+  fps: 15
+  # On software OpenGL (no GPU, llvmpipe) rendering is slow; the bridge measures it and lowers
+  # the frame rate so rendering uses at most this share of wall time. Physics stays real time.
+  max_render_share: 0.25
+  # true: always skip shadow/reflection passes (done automatically on software OpenGL).
+  simple_render: false
+  horizontal_fov: 0.934
+  # Clip planes follow MuJoCo defaults (near = 1% of scene extent, about 0.07 m here).
+  topic: camera/image_raw
+  info_topic: camera/camera_info
+  frame_id: front_camera_link
+visual:
+  # wall-parking: even indoor light like the classroom. Real camera V (0-255): walls 150-200,
+  # inner side faces about the same as the back wall, floor 220-235.
+  # Headlight follows the rendering camera.
+  light_diffuse: "0.3 0.3 0.3"
+  headlight:
+    ambient: "0.75 0.75 0.75"
+    diffuse: "0.15 0.15 0.15"
+    specular: "0.1 0.1 0.1"

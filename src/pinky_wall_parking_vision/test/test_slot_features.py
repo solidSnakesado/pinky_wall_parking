@@ -1,0 +1,76 @@
+"""src/pinky_wall_parking_vision/test/test_slot_features.py - slot_features 단위 시험
+
+역할: 실물 2호기 카메라로 찍은 영상 5장으로 특징 검출 결과를 확인한다.
+방법: 칸 축 위에 놓고 찍은 영상이므로 다음을 확인한다.
+      - 바닥이 보이는 4장: 뒤 벽, 좌우 모서리, 소실점을 모두 찾음
+      - 가까워질수록 뒤 벽 경계 y 가 커짐 (거리 단서)
+      - 칸 가운데와 소실점이 화면 가운데 근처 (배치 오차 범위)
+      - 바닥이 안 보이는 1장 (뒤 벽 100 mm): 아무것도 찾지 않음
+실행: cd ~/pinky_wall_parking && python3 -m pytest -q src/pinky_wall_parking_vision/test/test_slot_features.py
+"""
+
+# --- 표준 라이브러리 ---------------------------------------------------------------
+from pathlib import Path                                                            # 시험 영상 경로
+
+# --- 외부 라이브러리 ---------------------------------------------------------------
+import cv2                                                                          # 영상 읽기
+import pytest                                                                       # 시험 틀
+
+# --- 이 패키지 ---------------------------------------------------------------------
+from pinky_wall_parking_vision.slot_features import extract_features                # 시험 대상
+
+
+# ==================================================================================
+# 시험 데이터
+# ==================================================================================
+DATA    = Path(__file__).parent / "data"                                            # 시험 영상 폴더
+VISIBLE = ["r2_f230", "r2_f100", "r2_f000", "r2_b140"]                              # 먼 곳 -> 가까운 곳
+CENTER_TOL = 25.0                                                                   # 화면 가운데 허용 (px)
+
+
+def load(name):
+    image = cv2.imread(str(DATA / f"{name}.jpg"))
+    assert image is not None, f"missing test image {name}.jpg"
+    return image
+
+
+# ==================================================================================
+# 바닥이 보이는 영상: 특징을 모두 찾음
+# ==================================================================================
+@pytest.mark.parametrize("name", VISIBLE)
+def test_features_found(name):
+    f = extract_features(load(name))
+    assert f.back_found                                                             # 뒤 벽 경계
+    assert f.left_found and f.right_found                                           # 두 모서리
+    assert f.left_x < f.width / 2 < f.right_x                                       # 모서리가 가운데 양쪽
+    assert f.vp_found                                                               # 소실점
+
+
+# ==================================================================================
+# 칸 가운데·소실점이 화면 가운데 근처
+# ==================================================================================
+@pytest.mark.parametrize("name", VISIBLE)
+def test_centered(name):
+    f = extract_features(load(name))
+    assert abs(f.center_x - f.width / 2) < CENTER_TOL
+    assert abs(f.vp_x - f.width / 2) < CENTER_TOL
+
+
+# ==================================================================================
+# 가까워질수록 뒤 벽 경계가 아래로, 모서리 간격이 넓어짐
+# ==================================================================================
+def test_distance_order():
+    fs = [extract_features(load(n)) for n in VISIBLE]
+    ys = [f.back_y for f in fs]
+    ws = [f.right_x - f.left_x for f in fs]
+    assert ys == sorted(ys), ys                                                     # 뒤 벽 경계 y 증가
+    assert ws == sorted(ws), ws                                                     # 모서리 간격 증가
+
+
+# ==================================================================================
+# 바닥이 안 보이는 영상: 아무것도 찾지 않음
+# ==================================================================================
+def test_too_close():
+    f = extract_features(load("r2_b100"))
+    assert not f.back_found
+    assert not (f.left_found or f.right_found or f.vp_found)

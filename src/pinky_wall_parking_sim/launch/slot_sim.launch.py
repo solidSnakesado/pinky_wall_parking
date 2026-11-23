@@ -6,7 +6,10 @@ src/pinky_wall_parking_sim/launch/slot_sim.launch.py - 종이벽돌 벽 주차 �
        -> ~/.cache/pinky_wall_parking/slot_<폭>mm.world 에 저장
     2. 핑키 프로 시뮬 launch (pinky_mujoco/launch_sim.launch.py) 를 world:=<저장 경로> 로 포함
     3. 칸 입구 정답 자세를 static tf (world -> slot_entrance, x = 칸 밖 방향) 로 발행 (평가용)
-- 핑키 프로 파일은 수정하지 않고 launch 를 불러다 사용 (핑키 launch 의 URDF 저장 방식과 같은 구조)
+- 핑키 프로 launch 를 불러다 사용 (핑키 launch 의 URDF 저장 방식과 같은 구조)
+- 카메라는 실물 값: physics_config (기본 config/mujoco_real_camera.yaml, 640x480, 화각 53.5°), cam_tilt_deg (기본 8)
+  -> 포크 wall-parking 의 launch_sim 에 추가한 physics_config 인자로 전달
+- 원본 영상을 압축 영상 (camera/image_raw/compressed) 으로도 발행 (실물과 같은 토픽, image_transport republish)
 - use_gpu 기본값 true (이 PC 확인 결과: 소프트웨어 렌더링은 카메라 13.5 Hz 로 제한)
 
 실행:
@@ -16,6 +19,7 @@ src/pinky_wall_parking_sim/launch/slot_sim.launch.py - 종이벽돌 벽 주차 �
   창 없이: viewer:=false,  카메라 끄기: camera:=false
   시작 위치 (칸 입구 기준): start_dist:=250 start_lat:=0 start_yaw:=0   (mm, mm, deg)
     start_dist < 0 (기본) 이면 원래 배치, start_yaw 0 = 로봇 뒷면이 칸을 향함
+    카메라 설정: physics_config:=<yaml> (빈 값 = 핑키 기본 mujoco.yaml), cam_tilt_deg:=8 (아래로 숙임, deg)
 """
 
 # ==================== 표준 라이브러리 ======================
@@ -37,6 +41,9 @@ from pinky_wall_parking_sim.slot_world import start_layout, write_slot_world    
 
 # 월드 저장 폴더
 WORLD_DIR = Path.home() / ".cache" / "pinky_wall_parking"
+# 실물 카메라 값 MuJoCo 설정 (포크 mujoco.yaml 복사본)
+REAL_CAMERA_CONFIG = os.path.join(get_package_share_directory("pinky_wall_parking_sim"),
+                                  "config", "mujoco_real_camera.yaml")
 
 # =========================================================
 # 실행 시 계산: 월드 생성 -> 핑키 시뮬 포함
@@ -64,6 +71,8 @@ def setup(context):
                 "use_gpu": LaunchConfiguration("use_gpu").perform(context),
                 "viewer":  LaunchConfiguration("viewer").perform(context),
                 "camera":  LaunchConfiguration("camera").perform(context),
+                "physics_config": LaunchConfiguration("physics_config").perform(context),
+                "cam_tilt_deg":   LaunchConfiguration("cam_tilt_deg").perform(context),
             }.items(),
         ),
         Node(package="tf2_ros", executable="static_transform_publisher",
@@ -71,6 +80,11 @@ def setup(context):
              arguments=["--x", f"{entrance[0]:.4f}", "--y", f"{entrance[1]:.4f}",
                         "--yaw", f"{entrance[2]:.6f}",
                         "--frame-id", "world", "--child-frame-id", "slot_entrance"]),
+        Node(package="image_transport", executable="republish", name="camera_compress",
+             parameters=[{"in_transport": "raw", "out_transport": "compressed",
+                          "use_sim_time": True}],
+             remappings=[("in", "camera/image_raw"),
+                         ("out/compressed", "camera/image_raw/compressed")]),
     ]
 
 # =========================================================
@@ -94,5 +108,9 @@ def generate_launch_description():
                               description="Open the MuJoCo viewer window"),
         DeclareLaunchArgument("camera", default_value="true",
                               description="Publish /camera/image_raw"),
+        DeclareLaunchArgument("physics_config", default_value=REAL_CAMERA_CONFIG,
+                              description="MuJoCo settings YAML (empty: pinky default mujoco.yaml)"),
+        DeclareLaunchArgument("cam_tilt_deg", default_value="8",
+                              description="Camera tilt down in deg (real Pinky estimate before calibration)"),
         OpaqueFunction(function=setup),
     ])
