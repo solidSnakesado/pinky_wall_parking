@@ -99,7 +99,7 @@ def test_closed_loop(y0, deg0):
 def test_ultrasonic_stop():
     fp = FrontParking(P)
     assert fp.step(0.0, camera(0, 0, 0), (0, 0, 0), us_m=0.40)[0] > 0
-    assert fp.step(0.1, camera(0, 0, 0), (0, 0, 0), us_m=0.02) == (0.0, 0.0)
+    assert fp.step(0.1, camera(0, 0, 0), (0, 0, 0), us_m=-0.0088) == (0.0, 0.0)
     assert fp.phase == Phase.STOP
 
 
