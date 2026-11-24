@@ -1,7 +1,8 @@
 # src/pinky_wall_parking_front/config/front_parking.yaml - front_parking_node 파라미터
 #
 # 값은 front_control.ControlParams 기본값과 같다. 시뮬·실물 차이 (use_ultrasonic) 는 런치 인자로 덮어쓴다.
-# 이득 (k_psi, k_e, k_yaw) 은 추정값이다 (임계 감쇠, wn 약 0.5). 시뮬 주행 결과로 조정한다.
+# 이득은 임계 감쇠, 거리 기준 같은 수렴 (wn = 25 x v, k_psi = 2 wn, k_e = wn^2 / v). 0.04 m/s -> wn 1.0.
+# 실물 1호기 (2026-11-24): 0.02 정지 26-30 mm, 0.04 15-22 mm, 0.06 17-20 mm (흔들림) -> 기본 0.04.
 # 실수 항목은 소수점을 붙여 적는다 (정수로 적으면 파라미터 형식이 맞지 않아 노드가 시작되지 않음).
 front_parking:
   ros__parameters:
@@ -12,11 +13,11 @@ front_parking:
     z_offset_mm: 24.5          # 거리 보정 절편 (mm, 시뮬 맞춤값)
                                # 로봇별 값은 런치 인자로 덮어쓴다. 1호기: z_scale 0.925, z_offset_mm 42.5
                                #   (vis_r1_straight2, 남는 오차 최대 13.8 mm)
-    k_psi: 1.0                 # 방향 오차 이득 (1/s)
-    k_e: 0.0125                # 옆 오차 이득 (rad/s/mm)
+    k_psi: 2.0                 # 방향 오차 이득 (1/s)
+    k_e: 0.025                 # 옆 오차 이득 (rad/s/mm)
     k_yaw: 1.0                 # 눈 감고 직진 yaw 이득 (1/s)
     w_max: 0.3                 # 회전 속도 한도 (rad/s)
-    v_approach: 0.02           # 전진 속도 (m/s)
+    v_approach: 0.04           # 전진 속도 (m/s)
     median_n: 5                # 중앙값 필터 장 수
     lost_sec: 0.5              # 특징 끊김 한도 (s)
     blind_mm: 200.0            # 이 거리 안에서 끊기면 눈 감고 직진 (mm)

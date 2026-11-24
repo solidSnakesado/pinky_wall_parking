@@ -5,7 +5,7 @@
 인자: use_ultrasonic  초음파 정지 사용 (기본 false = 시뮬, 실물은 true)
       use_sim_time    시뮬 시간 사용 (기본 false, 시뮬은 true)
       z_scale, z_offset_mm  거리 보정 (기본 = 시뮬 맞춤값 0.940, 24.5. 1호기 0.925, 42.5)
-      v_approach, k_psi, k_e  속도·이득 (기본 0.02, 1.0, 0.0125. 거리 기준 같은 수렴: 0.04 -> 2.0, 0.025, 0.06 -> 3.0, 0.0375)
+      v_approach, k_psi, k_e  속도·이득 (기본 0.04, 2.0, 0.025. 거리 기준 같은 수렴: 0.02 -> 1.0, 0.0125, 0.06 -> 3.0, 0.0375)
 실행: ros2 launch pinky_wall_parking_front front_parking.launch.py use_sim_time:=true
       ros2 launch pinky_wall_parking_front front_parking.launch.py use_ultrasonic:=true z_scale:=0.925 z_offset_mm:=42.5
       주차 시작: ros2 service call /front_parking/start std_srvs/srv/Trigger
@@ -25,7 +25,7 @@ from launch_ros.parameter_descriptions import ParameterValue                    
 # 인자 (이름, 기본값, 형식)
 ARGS = [("use_ultrasonic", "false", bool), ("use_sim_time", "false", bool),
         ("z_scale", "0.940", float), ("z_offset_mm", "24.5", float),
-        ("v_approach", "0.02", float), ("k_psi", "1.0", float), ("k_e", "0.0125", float)]
+        ("v_approach", "0.04", float), ("k_psi", "2.0", float), ("k_e", "0.025", float)]
 
 
 # ==================================================================================
