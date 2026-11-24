@@ -4,7 +4,7 @@
 방법: 흰 바닥에는 색이 없으므로 열마다 가장 아래 색 픽셀을 찾아 벽과 바닥의 경계를 만든다.
       화면 가운데 평평한 구간 = 뒤 벽, 양 끝 = 뒤쪽 모서리, 바깥으로 내려가는 점 = 옆 벽 바닥 경계선, 두 선의 교점 = 소실점.
       카메라 옆 기울기 (roll_deg) 는 영상을 돌려 보정하고, 뒤 벽은 직선을 다시 맞추며 넓힌다.
-실행: 라이브러리 (slot_vision_node, test_slot_features 에서 호출)
+실행: 라이브러리 (slot_vision_node, test_slot_features 에서 호출). 확인용 그림은 slot_draw
 """
 
 # --- 표준 라이브러리 ---------------------------------------------------------------
@@ -31,6 +31,7 @@ class FeatureParams:
     side_jump:    float = 15.0                                                      # 옆 벽 경계선 한 칸 최대 변화 (px)
     edge_margin:  int   = 3                                                         # 화면 가장자리 여유 (px)
     back_iter:    int   = 3                                                         # 뒤 벽 직선 다시 맞춤 횟수
+    back_slope:   float = 0.2                                                       # 뒤 벽 기울기 한도 (dy/dx, 약 11 deg)
     roll_deg:     float = 0.0                                                       # 정렬 상태 뒤 벽 기울기 (로봇별, deg)
 
 
@@ -72,25 +73,22 @@ def color_envelope(image, p):
 
 
 # ==================================================================================
-# 뒤 벽 구간 (화면 가운데에서 좌우로 넓힘)
+# 뒤 벽 구간: 기준 열 cx 에서 좌우로 넓히며 직선 다시 맞춤
 # ==================================================================================
-def find_back(low, bottom, p):
-    w    = len(low)
-    cx   = w // 2
-    half = max(int(w * p.center_frac), 1)
+def grow_back(low, bottom, p, cx, half):
     win  = low[cx - half: cx + half]
     win  = win[(win >= 0) & (win < bottom)]                                         # 바닥 위에 있는 값만
     if len(win) < half:
-        return None                                                                 # 가운데에 뒤 벽 없음
+        return None                                                                 # 기준 구간에 벽 없음
     a, b = 0.0, float(np.median(win))                                               # 처음은 수평선
-    cols = np.arange(w)
+    cols = np.arange(len(low))
     for _ in range(p.back_iter):
         ok = (low >= 0) & (np.abs(low - (a * cols + b)) <= p.flat_tol)              # 직선에 가까운 열
         xl = cx
         while xl > 0 and ok[max(xl - p.gap_max, 0): xl].any():
             xl -= 1                                                                 # 왼쪽으로 넓힘
         xr = cx
-        while xr < w - 1 and ok[xr + 1: xr + 1 + p.gap_max].any():
+        while xr < len(low) - 1 and ok[xr + 1: xr + 1 + p.gap_max].any():
             xr += 1                                                                 # 오른쪽으로 넓힘
         xs = cols[xl: xr + 1]
         xs = xs[ok[xs]]
@@ -98,6 +96,21 @@ def find_back(low, bottom, p):
             return None                                                             # 뒤 벽이 너무 짧음
         a, b = np.polyfit(xs, low[xs], 1)                                           # 직선 다시 맞춤
     return a, b, int(xs[0]), int(xs[-1])
+
+
+# ==================================================================================
+# 뒤 벽 찾기: 여러 기준 열에서 넓혀 본 구간 중 가장 위 (= 가장 먼) 의 평평한 구간
+# ==================================================================================
+def find_back(low, bottom, p):
+    half = max(int(len(low) * p.center_frac), 1)
+    best = None
+    for cx in range(half, len(low) - half + 1, half):                               # 로봇이 틀어져도 찾도록
+        seg = grow_back(low, bottom, p, cx, half)
+        if seg is None or abs(seg[0]) > p.back_slope:
+            continue
+        if best is None or seg[0] * (seg[2] + seg[3]) / 2 + seg[1] < best[0] * (best[2] + best[3]) / 2 + best[1]:
+            best = seg
+    return best
 
 
 # ==================================================================================
@@ -171,30 +184,3 @@ def extract_features(image, p=None):
             res.vp_x     = float((c2 - c1) / (m1 - m2))                             # 두 선의 교점
             res.vp_y     = float(m1 * res.vp_x + c1)
     return res
-
-
-# ==================================================================================
-# 확인용 그림
-# ==================================================================================
-def draw_features(image, f):
-    out = image.copy()
-    w   = f.width
-    cv2.line(out, (w // 2, 0), (w // 2, f.height - 1), (200, 200, 200), 1)          # 화면 가운데
-    if f.envelope is not None:
-        for x, y in enumerate(f.envelope):
-            if y >= 0:
-                cv2.circle(out, (x, int(y)), 1, (255, 0, 255), -1)                  # 경계 점
-    if not f.back_found:
-        return out
-    ys = [f.back_y + f.back_slope * (x - f.center_x) for x in (f.left_x, f.right_x)]
-    pl = (int(f.left_x), int(ys[0]))
-    pr = (int(f.right_x), int(ys[1]))
-    cv2.line(out, pl, pr, (0, 255, 0), 2)                                           # 뒤 벽 경계
-    for pt, seen in ((pl, f.left_found), (pr, f.right_found)):
-        cv2.circle(out, pt, 6, (0, 255, 0) if seen else (0, 0, 255), 2)             # 모서리 (빨강 = 안 보임)
-    for name, (m, c) in f.side_lines.items():
-        x0, x1 = (0, pl[0]) if name == "L" else (pr[0], w - 1)
-        cv2.line(out, (x0, int(m * x0 + c)), (x1, int(m * x1 + c)), (255, 128, 0), 2)
-    if f.vp_found:
-        cv2.circle(out, (int(f.vp_x), int(f.vp_y)), 6, (0, 255, 255), 2)            # 소실점
-    return out

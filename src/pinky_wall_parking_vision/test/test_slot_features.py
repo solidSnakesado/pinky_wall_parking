@@ -8,6 +8,7 @@
       - 바닥이 안 보이는 1장 (뒤 벽 100 mm): 아무것도 찾지 않음
       - 1호기 (카메라 옆 기울기 약 -1.4 deg): 기울기 보정 후 특징을 모두 찾고 경계가 수평에 가까움
       - 옆 벽 선이 앞 끝면 아래 평평한 구간에 끌려가지 않음 (기울기 크기)
+      - 로봇이 칸에 10 deg 틀어져 뒤 벽이 화면 가운데에서 벗어나도 찾음 (시뮬 영상 sim_yaw10)
 실행: cd ~/pinky_wall_parking && python3 -m pytest -q src/pinky_wall_parking_vision/test/test_slot_features.py
 """
 
@@ -33,6 +34,7 @@ CENTER_TOL = 25.0                                                               
 R1      = ["r1_f230", "r1_f100", "r1_f000"]                                         # 1호기, 먼 곳 -> 가까운 곳
 R1_ROLL = -1.4                                                                      # 1호기 정렬 상태 뒤 벽 기울기 (deg)
 LEVEL_TOL = 1.0                                                                     # 보정 후 뒤 벽 기울기 허용 (deg)
+YAW_SHIFT = 80.0                                                                    # 10 deg 틀어짐 소실점 이동 하한 (약 112 px)
 SIDE_MIN  = 0.6                                                                     # 옆 벽 선 기울기 크기 하한 (실제 약 0.7~1.0)
 
 
@@ -111,3 +113,12 @@ def test_side_slope(name, roll):
     assert set(f.side_lines) == {"L", "R"}
     for m, _ in f.side_lines.values():
         assert abs(m) > SIDE_MIN, (name, m)
+
+
+# ==================================================================================
+# 로봇이 칸에 10 deg 틀어진 출발 (시뮬): 뒤 벽이 화면 가운데에서 벗어나도 찾음
+# ==================================================================================
+def test_yawed_start():
+    f = extract_features(load("sim_yaw10"))
+    assert f.back_found and f.left_found and f.right_found and f.vp_found
+    assert f.vp_x - f.width / 2 > YAW_SHIFT, f.vp_x                                 # 635 px x tan 10 deg

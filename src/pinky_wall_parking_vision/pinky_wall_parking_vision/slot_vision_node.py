@@ -22,7 +22,7 @@ from rclpy.qos import qos_profile_sensor_data, QoSProfile                       
 from sensor_msgs.msg import CompressedImage                                         # 압축 영상
 
 # --- 이 패키지 ---------------------------------------------------------------------
-from pinky_wall_parking_vision.slot_features import draw_features                   # 확인용 그림
+from pinky_wall_parking_vision.slot_draw import draw_features                       # 확인용 그림
 from pinky_wall_parking_vision.slot_features import extract_features                # 특징 찾기
 from pinky_wall_parking_vision.slot_features import FeatureParams                   # 검출 파라미터
 from pinky_wall_parking_vision.slot_features import level_image                     # 옆 기울기 보정
