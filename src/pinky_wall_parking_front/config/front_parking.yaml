@@ -10,6 +10,8 @@ front_parking:
     slot_mm: 130.0             # 칸 폭 (mm)
     z_scale: 0.940             # 거리 보정 기울기 (Z 측정 = z_scale * 실제 + z_offset_mm)
     z_offset_mm: 24.5          # 거리 보정 절편 (mm, 시뮬 맞춤값)
+                               # 로봇별 값은 런치 인자로 덮어쓴다. 1호기: z_scale 0.925, z_offset_mm 42.5
+                               #   (vis_r1_straight2, 남는 오차 최대 13.8 mm)
     k_psi: 1.0                 # 방향 오차 이득 (1/s)
     k_e: 0.0125                # 옆 오차 이득 (rad/s/mm)
     k_yaw: 1.0                 # 눈 감고 직진 yaw 이득 (1/s)
@@ -17,7 +19,7 @@ front_parking:
     v_approach: 0.02           # 전진 속도 (m/s)
     median_n: 5                # 중앙값 필터 장 수
     lost_sec: 0.5              # 특징 끊김 한도 (s)
-    blind_mm: 160.0            # 이 거리 안에서 끊기면 눈 감고 직진 (mm)
+    blind_mm: 200.0            # 이 거리 안에서 끊기면 눈 감고 직진 (mm)
     stop_mm: 30.0              # 앞 끝 - 뒤 벽 정지 간격 (mm)
     us_stop_m: -0.005          # 초음파 정지 값 (m). 1호기 실측 (앞 끝 - 뒤 벽): 45 mm -0.0007, 40 +0.0030,
                                #   35 -0.0124, 30 이하 -0.0088 -> 약 35 mm 이하에서 정지 (50 mm 아래는 거리 순서가 안 맞음)

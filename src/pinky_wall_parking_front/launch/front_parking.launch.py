@@ -4,8 +4,9 @@
       칸 특징은 slot_vision.launch.py 를 따로 실행해 받는다.
 인자: use_ultrasonic  초음파 정지 사용 (기본 false = 시뮬, 실물은 true)
       use_sim_time    시뮬 시간 사용 (기본 false, 시뮬은 true)
+      z_scale, z_offset_mm  거리 보정 (기본 = 시뮬 맞춤값 0.940, 24.5. 1호기 0.925, 42.5)
 실행: ros2 launch pinky_wall_parking_front front_parking.launch.py use_sim_time:=true
-      ros2 launch pinky_wall_parking_front front_parking.launch.py use_ultrasonic:=true
+      ros2 launch pinky_wall_parking_front front_parking.launch.py use_ultrasonic:=true z_scale:=0.925 z_offset_mm:=42.5
       주차 시작: ros2 service call /front_parking/start std_srvs/srv/Trigger
 """
 
@@ -21,7 +22,8 @@ from launch_ros.actions import Node                                             
 from launch_ros.parameter_descriptions import ParameterValue                        # 인자 문자열 -> 형식
 
 # 인자 (이름, 기본값, 형식)
-ARGS = [("use_ultrasonic", "false", bool), ("use_sim_time", "false", bool)]
+ARGS = [("use_ultrasonic", "false", bool), ("use_sim_time", "false", bool),
+        ("z_scale", "0.940", float), ("z_offset_mm", "24.5", float)]
 
 
 # ==================================================================================

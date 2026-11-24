@@ -32,7 +32,7 @@ class ControlParams:
     v_approach:  float = 0.02                                                       # 전진 속도 (m/s)
     median_n:    int   = 5                                                          # 중앙값 필터 장 수
     lost_sec:    float = 0.5                                                        # 접근 중 특징 끊김 한도 (s)
-    blind_mm:    float = 160.0                                                      # 이 거리 안에서 끊기면 눈 감고 직진 (mm)
+    blind_mm:    float = 200.0                                                      # 이 거리 안에서 끊기면 눈 감고 직진 (mm)
     stop_mm:     float = 30.0                                                       # 앞 끝 - 뒤 벽 정지 간격 (mm)
     us_stop_m:   float = -0.005                                                     # 초음파 정지 값 (m, 1호기 앞 끝 약 35 mm 이하)
     us_jump_m:   float = 0.9                                                        # 이 값 이상이면 초음파 값 튐 (m)
