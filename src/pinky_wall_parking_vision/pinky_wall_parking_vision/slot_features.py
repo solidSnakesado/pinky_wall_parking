@@ -5,6 +5,7 @@
 방법: 흰 바닥에는 색이 없으므로 열마다 가장 아래 색 픽셀을 찾아 벽과 바닥의 경계를 만든다.
       화면 가운데의 평평한 구간 = 뒤 벽, 그 양 끝 = 뒤쪽 모서리,
       바깥으로 내려가는 구간 = 옆 벽 바닥 경계선, 두 선이 만나는 점 = 소실점.
+      카메라 옆 기울기 (roll_deg) 는 영상을 돌려 보정하고, 뒤 벽은 직선을 다시 맞추며 넓힌다.
 실행: 라이브러리 (slot_vision_node, test_slot_features 에서 호출)
 """
 
@@ -26,11 +27,13 @@ class FeatureParams:
     close_width:  int   = 31                                                        # 줄눈 메우는 가로 길이 (px)
     center_frac:  float = 0.1                                                       # 뒤 벽 기준 구간 (화면 폭 비율, 반쪽)
     flat_tol:     float = 4.0                                                       # 뒤 벽 평평함 허용 (px)
-    gap_max:      int   = 8                                                         # 뒤 벽 구간 안 끊김 허용 (px)
+    gap_max:      int   = 24                                                        # 뒤 벽 구간 안 끊김 허용 (px)
     min_back:     int   = 40                                                        # 뒤 벽 최소 길이 (px)
     side_min:     int   = 15                                                        # 옆 벽 경계선 최소 점 수
     side_jump:    float = 15.0                                                      # 옆 벽 경계선 한 칸 최대 변화 (px)
     edge_margin:  int   = 3                                                         # 화면 가장자리 여유 (px)
+    back_iter:    int   = 3                                                         # 뒤 벽 직선 다시 맞춤 횟수
+    roll_deg:     float = 0.0                                                       # 정렬 상태 뒤 벽 기울기 (로봇별, deg)
 
 
 # ==================================================================================
@@ -81,19 +84,21 @@ def find_back(low, bottom, p):
     win  = win[(win >= 0) & (win < bottom)]                                         # 바닥 위에 있는 값만
     if len(win) < half:
         return None                                                                 # 가운데에 뒤 벽 없음
-    y0 = np.median(win)
-    ok = (low >= 0) & (np.abs(low - y0) <= p.flat_tol)                              # 뒤 벽 높이와 같은 열
-    xl = cx
-    while xl > 0 and ok[max(xl - p.gap_max, 0): xl].any():
-        xl -= 1                                                                     # 왼쪽으로 넓힘
-    xr = cx
-    while xr < w - 1 and ok[xr + 1: xr + 1 + p.gap_max].any():
-        xr += 1                                                                     # 오른쪽으로 넓힘
-    xs = np.arange(xl, xr + 1)
-    xs = xs[ok[xs]]
-    if len(xs) < p.min_back:
-        return None                                                                 # 뒤 벽이 너무 짧음
-    a, b = np.polyfit(xs, low[xs], 1)                                               # 직선 맞춤
+    a, b = 0.0, float(np.median(win))                                               # 처음은 수평선
+    cols = np.arange(w)
+    for _ in range(p.back_iter):
+        ok = (low >= 0) & (np.abs(low - (a * cols + b)) <= p.flat_tol)              # 직선에 가까운 열
+        xl = cx
+        while xl > 0 and ok[max(xl - p.gap_max, 0): xl].any():
+            xl -= 1                                                                 # 왼쪽으로 넓힘
+        xr = cx
+        while xr < w - 1 and ok[xr + 1: xr + 1 + p.gap_max].any():
+            xr += 1                                                                 # 오른쪽으로 넓힘
+        xs = cols[xl: xr + 1]
+        xs = xs[ok[xs]]
+        if len(xs) < p.min_back:
+            return None                                                             # 뒤 벽이 너무 짧음
+        a, b = np.polyfit(xs, low[xs], 1)                                           # 직선 다시 맞춤
     return a, b, int(xs[0]), int(xs[-1])
 
 
@@ -118,10 +123,22 @@ def find_side(low, bottom, start_x, start_y, step, p):
 
 
 # ==================================================================================
+# 카메라 옆 기울기 보정 (화면 가운데 기준 회전, 특징 좌표는 회전한 영상 기준)
+# ==================================================================================
+def level_image(image, p):
+    if not p.roll_deg:
+        return image
+    h, w = image.shape[:2]
+    rot  = cv2.getRotationMatrix2D((w / 2.0, h / 2.0), p.roll_deg, 1.0)             # 양수 = 반시계
+    return cv2.warpAffine(image, rot, (w, h), borderValue=(255, 255, 255))          # 빈 곳 = 흰색 (색 없음)
+
+
+# ==================================================================================
 # 영상 한 장 -> 특징
 # ==================================================================================
 def extract_features(image, p=None):
     p      = p or FeatureParams()
+    image  = level_image(image, p)
     h, w   = image.shape[:2]
     res    = SlotFeatures(width=w, height=h)
     low    = color_envelope(image, p)
