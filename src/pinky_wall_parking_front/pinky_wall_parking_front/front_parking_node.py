@@ -89,6 +89,8 @@ class FrontParkingNode(Node):
 
     def on_range(self, msg):
         self.us = (self.now(), msg.range)
+        if self.fp is not None and self.fp.check_us(msg.range):                     # 초음파 20 Hz 마다 바로 정지 판단
+            self.publish(0.0, 0.0)
 
     def on_start(self, request, response):
         if self.odom is None:

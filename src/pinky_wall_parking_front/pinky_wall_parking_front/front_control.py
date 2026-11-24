@@ -33,6 +33,7 @@ class ControlParams:
     median_n:    int   = 5                                                          # 중앙값 필터 장 수
     lost_sec:    float = 0.5                                                        # 접근 중 특징 끊김 한도 (s)
     blind_mm:    float = 200.0                                                      # 이 거리 안에서 끊기면 눈 감고 직진 (mm)
+    blind_frames: int  = 3                                                          # 특징이 이만큼 연속으로 빠져야 눈 감고 직진
     stop_mm:     float = 30.0                                                       # 앞 끝 - 뒤 벽 정지 간격 (mm)
     us_stop_m:   float = -0.005                                                     # 초음파 정지 값 (m, 1호기 앞 끝 약 35 mm 이하)
     us_jump_m:   float = 0.9                                                        # 이 값 이상이면 초음파 값 튐 (m)
@@ -94,6 +95,7 @@ class FrontParking:
         self.cmd     = (0.0, 0.0)                                                   # 마지막 명령 (v, w)
         self.yaw_ref = 0.0                                                          # 칸 축 yaw (rad)
         self.left_mm = 0.0                                                          # 눈 감고 갈 거리 (mm)
+        self.miss    = 0                                                            # 특징 연속 빠짐 수
 
     def finish(self, phase, reason):
         self.phase, self.reason = phase, reason
@@ -106,13 +108,23 @@ class FrontParking:
             return self.cmd
         if self.t0 is None:
             self.t0 = t
-        if us_m is not None and us_m >= self.p.us_jump_m:
-            return self.finish(Phase.ABORT, "ultrasonic jump")
-        if us_m is not None and us_m <= self.p.us_stop_m:
-            return self.finish(Phase.STOP, "ultrasonic")
+        if self.check_us(us_m):
+            return self.cmd
         if self.phase == Phase.APPROACH:
             return self.approach(t, feat, odom)
         return self.blind(odom)
+
+    def check_us(self, us_m):
+        """초음파만으로 정지 판단 (노드는 초음파 메시지마다 부름). 이번에 끝났으면 True."""
+        if self.phase in (Phase.STOP, Phase.ABORT) or us_m is None:
+            return False
+        if us_m >= self.p.us_jump_m:
+            self.finish(Phase.ABORT, "ultrasonic jump")                             # 너무 가까워 반사파 없음
+            return True
+        if us_m <= self.p.us_stop_m:
+            self.finish(Phase.STOP, "ultrasonic")
+            return True
+        return False
 
     def approach(self, t, feat, odom):
         x, y, yaw = odom
@@ -120,9 +132,12 @@ class FrontParking:
             vp_x, cx, gap = self.f_vp(feat[0]), self.f_cx(feat[1]), self.f_gap(feat[2])
             psi, e, z = slot_errors(vp_x, cx, gap, self.p)
             self.seen = (t, x, y, yaw, psi, z)
+            self.miss = 0
             self.cmd  = (self.p.v_approach, steer(psi, e, self.p))
             return self.cmd
-        if self.seen is not None and self.seen[5] <= self.p.blind_mm:
+        self.miss += 1
+        near = self.seen is not None and self.seen[5] <= self.p.blind_mm
+        if near and self.miss >= self.p.blind_frames:
             _, _, _, yaw0, psi0, z0 = self.seen
             self.phase   = Phase.BLIND
             self.yaw_ref = wrap(yaw0 - psi0)                                        # 칸 축 방향

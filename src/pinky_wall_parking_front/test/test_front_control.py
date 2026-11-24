@@ -48,9 +48,9 @@ def camera(x, y, th):
     return vp_x, (us[0] + us[1]) / 2, us[1] - us[0]
 
 
-def drive(y0, th0, steps=1500):
+def drive(y0, th0, p=P, steps=3000):
     """닫힌 고리 주행. 반환: (상태 기계, 마지막 x, y, th)."""
-    fp, x, y, th = FrontParking(P), 0.0, y0, th0
+    fp, x, y, th = FrontParking(p), 0.0, y0, th0
     for i in range(steps):
         v, w = fp.step(i * DT, camera(x, y, th), (x / 1000.0, y / 1000.0, th))
         if fp.phase in (Phase.STOP, Phase.ABORT):
@@ -116,3 +116,38 @@ def test_lost_far():
     assert fp.phase == Phase.APPROACH                                               # 짧은 끊김은 계속
     fp.step(0.6, None, (0, 0, 0))
     assert fp.phase == Phase.ABORT and fp.reason == "features lost"
+
+
+# ==================================================================================
+# 속도를 올려도 같은 거리 안에 수렴 (wn = 25 x v: k_psi = 2 wn, k_e = wn^2 / v)
+# ==================================================================================
+@pytest.mark.parametrize("v", [0.04, 0.06])
+def test_faster(v):
+    wn = 25.0 * v
+    p  = ControlParams(z_scale=1.0, z_offset_mm=0.0, v_approach=v, k_psi=2.0 * wn, k_e=wn * wn / v / 1000.0)
+    for y0, deg0 in [(20.0, 0.0), (0.0, 10.0)]:
+        fp, x, y, th = drive(y0, math.radians(deg0), p)
+        assert fp.phase == Phase.STOP, fp.reason
+        assert abs(y) < Y_TOL and abs(math.degrees(th)) < YAW_TOL, (y, th)
+        assert abs(BACK_MM - x - P.stop_mm) < 2.0 * GAP_TOL, x                      # 필터 지연만큼 더 감 (시뮬 약 10 mm)
+
+
+# ==================================================================================
+# 특징이 한 장 빠져도 눈 감고 직진으로 넘어가지 않음, 초음파는 따로 판단
+# ==================================================================================
+def test_blind_needs_frames():
+    fp   = FrontParking(P)
+    near = camera(250.0, 0, 0)                                                      # 뒤 벽 170 mm (blind_mm 안)
+    fp.step(0.0, near, (0.25, 0, 0))
+    fp.step(0.1, None, (0.25, 0, 0))
+    assert fp.phase == Phase.APPROACH
+    fp.step(0.2, None, (0.25, 0, 0))
+    fp.step(0.3, None, (0.25, 0, 0))
+    assert fp.phase == Phase.BLIND
+
+
+def test_check_us():
+    fp = FrontParking(P)
+    assert not fp.check_us(None) and not fp.check_us(0.40)
+    assert fp.check_us(-0.0088) and fp.phase == Phase.STOP
+    assert not fp.check_us(-0.0088)                                                 # 이미 끝남 -> 다시 True 안 됨
