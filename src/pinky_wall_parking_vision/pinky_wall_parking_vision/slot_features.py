@@ -99,17 +99,20 @@ def grow_back(low, bottom, p, cx, half):
 
 
 # ==================================================================================
-# 뒤 벽 찾기: 여러 기준 열에서 넓혀 본 구간 중 가장 위 (= 가장 먼) 의 평평한 구간
+# 뒤 벽 찾기: 여러 기준 열에서 넓혀 본 평평한 구간 중 양 끝에 옆 벽 선이 많은 것, 같으면 가장 위 (먼 것)
 # ==================================================================================
 def find_back(low, bottom, p):
     half = max(int(len(low) * p.center_frac), 1)
-    best = None
+    best, best_key = None, None
     for cx in range(half, len(low) - half + 1, half):                               # 로봇이 틀어져도 찾도록
         seg = grow_back(low, bottom, p, cx, half)
         if seg is None or abs(seg[0]) > p.back_slope:
             continue
-        if best is None or seg[0] * (seg[2] + seg[3]) / 2 + seg[1] < best[0] * (best[2] + best[3]) / 2 + best[1]:
-            best = seg
+        a, b, xl, xr = seg
+        sides = sum(find_side(low, bottom, x, a * x + b, step, p) is not None for x, step in ((xl, -1), (xr, 1)))
+        key   = (sides, -(a * (xl + xr) / 2 + b))                                   # 방 벽 등 다른 평평한 구간 제외
+        if best_key is None or key > best_key:
+            best, best_key = seg, key
     return best
 
 
