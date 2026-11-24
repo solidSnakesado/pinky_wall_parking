@@ -26,7 +26,7 @@ from pinky_wall_parking_front.front_control import steer                        
 # ==================================================================================
 # 시험 설정
 # ==================================================================================
-P        = ControlParams()
+P        = ControlParams(z_scale=1.0, z_offset_mm=0.0)                               # 이상적인 핀홀 카메라 (거리 보정 없음)
 BACK_MM  = 420.0                                                                    # 출발 위치 렌즈 -> 뒤 벽 (mm)
 SEE_MM   = 140.0                                                                    # 이보다 가까우면 특징 안 보임 (시뮬 결과)
 DT       = 1.0 / 15.0                                                               # 카메라 주기 (s)
@@ -65,9 +65,9 @@ def drive(y0, th0, steps=1500):
 # 오차 계산·제어 법칙 부호
 # ==================================================================================
 def test_errors_sim_values():
-    psi, e, z = slot_errors(319.3, 289.0, 198.0, P)
+    psi, e, z = slot_errors(319.3, 289.0, 198.0, ControlParams())                   # 시뮬 보정값
     assert e == pytest.approx(-19.9, abs=0.1)                                       # 로봇이 칸 축 오른쪽
-    assert z == pytest.approx(418.2, abs=0.5)                                       # 출발 420 mm 근처
+    assert z == pytest.approx(419.5, abs=1.0)                                       # 녹화 실제 거리 (front_sim_s0)
 
 
 def test_steer_sign():

@@ -8,6 +8,8 @@ front_parking:
     f_px: 637.0                # 초점 거리 (px)
     cx_px: 320.0               # 영상 가운데 x (px)
     slot_mm: 130.0             # 칸 폭 (mm)
+    z_scale: 0.940             # 거리 보정 기울기 (Z 측정 = z_scale * 실제 + z_offset_mm)
+    z_offset_mm: 24.5          # 거리 보정 절편 (mm, 시뮬 맞춤값)
     k_psi: 1.0                 # 방향 오차 이득 (1/s)
     k_e: 0.0125                # 옆 오차 이득 (rad/s/mm)
     k_yaw: 1.0                 # 눈 감고 직진 yaw 이득 (1/s)

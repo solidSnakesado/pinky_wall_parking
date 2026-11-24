@@ -23,6 +23,8 @@ class ControlParams:
     f_px:        float = 637.0                                                      # 초점 거리 (px)
     cx_px:       float = 320.0                                                      # 영상 가운데 x (px)
     slot_mm:     float = 130.0                                                      # 칸 폭 (mm)
+    z_scale:     float = 0.940                                                      # 거리 보정 기울기 (측정 Z = 기울기 x 실제 + 절편)
+    z_offset_mm: float = 24.5                                                       # 거리 보정 절편 (mm, 시뮬 맞춤값)
     k_psi:       float = 1.0                                                        # 방향 오차 이득 (1/s)
     k_e:         float = 0.0125                                                     # 옆 오차 이득 (rad/s/mm)
     k_yaw:       float = 1.0                                                        # 눈 감고 직진 yaw 이득 (1/s)
@@ -49,7 +51,7 @@ class Phase(Enum):
 def slot_errors(vp_x, center_x, gap_px, p):
     psi = math.atan((vp_x - p.cx_px) / p.f_px)                                      # + = 로봇이 칸 축보다 왼쪽을 향함
     e   = p.slot_mm * (center_x - vp_x) / gap_px                                    # - = 로봇이 칸 축 오른쪽 (mm)
-    z   = p.f_px * p.slot_mm / gap_px                                               # 뒤 벽까지 거리 (mm)
+    z   = (p.f_px * p.slot_mm / gap_px - p.z_offset_mm) / p.z_scale                 # 뒤 벽까지 거리 (mm, 직선 보정)
     return psi, e, z
 
 
