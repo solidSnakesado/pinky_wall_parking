@@ -1,0 +1,23 @@
+# src/pinky_wall_parking_front/config/front_parking.yaml - front_parking_node 파라미터
+#
+# 값은 front_control.ControlParams 기본값과 같다. 시뮬·실물 차이 (use_ultrasonic) 는 런치 인자로 덮어쓴다.
+# 이득 (k_psi, k_e, k_yaw) 은 추정값이다 (임계 감쇠, wn 약 0.5). 시뮬 주행 결과로 조정한다.
+# 실수 항목은 소수점을 붙여 적는다 (정수로 적으면 파라미터 형식이 맞지 않아 노드가 시작되지 않음).
+front_parking:
+  ros__parameters:
+    f_px: 637.0                # 초점 거리 (px)
+    cx_px: 320.0               # 영상 가운데 x (px)
+    slot_mm: 130.0             # 칸 폭 (mm)
+    k_psi: 1.0                 # 방향 오차 이득 (1/s)
+    k_e: 0.0125                # 옆 오차 이득 (rad/s/mm)
+    k_yaw: 1.0                 # 눈 감고 직진 yaw 이득 (1/s)
+    w_max: 0.3                 # 회전 속도 한도 (rad/s)
+    v_approach: 0.02           # 전진 속도 (m/s)
+    median_n: 5                # 중앙값 필터 장 수
+    lost_sec: 0.5              # 특징 끊김 한도 (s)
+    blind_mm: 160.0            # 이 거리 안에서 끊기면 눈 감고 직진 (mm)
+    stop_mm: 30.0              # 앞 끝 - 뒤 벽 정지 간격 (mm)
+    us_stop_m: 0.03            # 초음파 정지 거리 (m, 실측 전 추정)
+    us_jump_m: 0.9             # 이 값 이상이면 초음파 값 튐 (m)
+    use_ultrasonic: false      # 초음파 사용 (시뮬 false, 실물 true)
+    us_stale_sec: 0.5          # 이보다 오래된 초음파는 안 씀 (s)
