@@ -1,10 +1,8 @@
 """src/pinky_wall_parking_vision/pinky_wall_parking_vision/slot_features.py - 영상 속 벽 칸 특징 찾기
 
-역할: 전방 카메라 영상 한 장에서 벽 칸의 특징 (뒤 벽 아래 경계, 뒤쪽 좌우 모서리,
-      옆 벽 바닥 경계선의 소실점) 을 픽셀 단위로 찾는다. ROS 를 쓰지 않는다.
+역할: 전방 카메라 영상 한 장에서 벽 칸의 특징 (뒤 벽 아래 경계, 뒤쪽 좌우 모서리, 소실점) 을 픽셀로 찾는다. ROS 미사용.
 방법: 흰 바닥에는 색이 없으므로 열마다 가장 아래 색 픽셀을 찾아 벽과 바닥의 경계를 만든다.
-      화면 가운데의 평평한 구간 = 뒤 벽, 그 양 끝 = 뒤쪽 모서리,
-      바깥으로 내려가는 구간 = 옆 벽 바닥 경계선, 두 선이 만나는 점 = 소실점.
+      화면 가운데 평평한 구간 = 뒤 벽, 양 끝 = 뒤쪽 모서리, 바깥으로 내려가는 점 = 옆 벽 바닥 경계선, 두 선의 교점 = 소실점.
       카메라 옆 기울기 (roll_deg) 는 영상을 돌려 보정하고, 뒤 벽은 직선을 다시 맞추며 넓힌다.
 실행: 라이브러리 (slot_vision_node, test_slot_features 에서 호출)
 """
@@ -113,13 +111,17 @@ def find_side(low, bottom, start_x, start_y, step, p):
         y = low[x]
         if y < 0 or y >= bottom or y < prev - 2 or y - prev > p.side_jump:
             break                                                                   # 경계선이 끊김
-        pts.append((x, y))
+        if y > prev:
+            pts.append((x, y))                                                      # 내려가는 점만 (계단 평평 부분 제외)
         prev = y
         x   += step
-    if len(pts) < p.side_min:
-        return None
-    pts = np.array(pts, dtype=float)
-    return tuple(np.polyfit(pts[:, 0], pts[:, 1], 1))                               # (기울기, 절편)
+    pts = np.array(pts, dtype=float).reshape(-1, 2)
+    for _ in range(p.back_iter + 1):                                                # 마지막은 먼 점 뺀 뒤 맞춤
+        if len(pts) < p.side_min:
+            return None
+        m, c = np.polyfit(pts[:, 0], pts[:, 1], 1)                                  # 직선 맞춤
+        pts  = pts[np.abs(pts[:, 1] - (m * pts[:, 0] + c)) <= p.flat_tol]           # 먼 점 (앞 끝면 아래) 제외
+    return float(m), float(c)                                                       # (기울기, 절편)
 
 
 # ==================================================================================

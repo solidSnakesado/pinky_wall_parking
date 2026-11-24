@@ -14,4 +14,4 @@ float32 right_x
 float32 center_x
 
 bool vp_found
-float32 vp_x
+vision_msgs/Point2D vp

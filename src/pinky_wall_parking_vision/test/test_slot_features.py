@@ -7,6 +7,7 @@
       - 칸 가운데와 소실점이 화면 가운데 근처 (배치 오차 범위)
       - 바닥이 안 보이는 1장 (뒤 벽 100 mm): 아무것도 찾지 않음
       - 1호기 (카메라 옆 기울기 약 -1.4 deg): 기울기 보정 후 특징을 모두 찾고 경계가 수평에 가까움
+      - 옆 벽 선이 앞 끝면 아래 평평한 구간에 끌려가지 않음 (기울기 크기)
 실행: cd ~/pinky_wall_parking && python3 -m pytest -q src/pinky_wall_parking_vision/test/test_slot_features.py
 """
 
@@ -32,6 +33,7 @@ CENTER_TOL = 25.0                                                               
 R1      = ["r1_f230", "r1_f100", "r1_f000"]                                         # 1호기, 먼 곳 -> 가까운 곳
 R1_ROLL = -1.4                                                                      # 1호기 정렬 상태 뒤 벽 기울기 (deg)
 LEVEL_TOL = 1.0                                                                     # 보정 후 뒤 벽 기울기 허용 (deg)
+SIDE_MIN  = 0.6                                                                     # 옆 벽 선 기울기 크기 하한 (실제 약 0.7~1.0)
 
 
 def load(name):
@@ -98,3 +100,14 @@ def test_r1_distance_order():
     ws = [f.right_x - f.left_x for f in fs]
     assert ys == sorted(ys), ys                                                     # 뒤 벽 경계 y 증가
     assert ws == sorted(ws), ws                                                     # 모서리 간격 증가
+
+
+# ==================================================================================
+# 옆 벽 선: 양쪽 모두 찾고, 앞 끝면 아래 평평한 구간에 끌려가지 않음
+# ==================================================================================
+@pytest.mark.parametrize("name, roll", [(n, 0.0) for n in VISIBLE] + [(n, R1_ROLL) for n in R1])
+def test_side_slope(name, roll):
+    f = extract_features(load(name), FeatureParams(roll_deg=roll))
+    assert set(f.side_lines) == {"L", "R"}
+    for m, _ in f.side_lines.values():
+        assert abs(m) > SIDE_MIN, (name, m)

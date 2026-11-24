@@ -24,6 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'slot_vision_node = pinky_wall_parking_vision.slot_vision_node:main',
         ],
     },
 )
