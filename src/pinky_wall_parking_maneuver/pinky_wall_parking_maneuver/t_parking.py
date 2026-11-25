@@ -1,10 +1,11 @@
-"""src/pinky_wall_parking_maneuver/pinky_wall_parking_maneuver/t_parking.py - T자 후면 주차 상태 기계
+"""src/pinky_wall_parking_maneuver/pinky_wall_parking_maneuver/t_parking.py - 차선에서 칸 앞 정렬 (후면 T자 / 전면)
 
 역할: 차선을 따라 전진하며 옆의 칸을 라이다로 찾고, 지나친 뒤 차량식 경로 (car_path) 로 칸 앞 정렬 자세까지 간다. ROS 미사용.
 방법: SEARCH - 출발 방향 (차선) 을 유지하며 전진. 칸 입구 인식값 (odom, 바깥 방향 yaw) 중 로봇이 칸 앞 +-lock_window 안일 때 것만 모음.
       LOCK   - 로봇이 칸 중심을 lock_after 지나면 모은 값의 중앙값으로 칸 고정, 정렬 자세 = 입구에서 바깥으로 stage_dist,
-               yaw = 바깥 방향 (뒤가 칸을 향함). 현재 자세에서 Reeds-Shepp 경로 계획.
-      TRACK  - 기어별 추종. 끝나면 DONE (노드가 Docking 으로 넘김). 칸을 못 찾고 search_max 를 가면 ABORT.
+               yaw = 바깥 방향 (후면: 뒤가 칸을 향함, 후진으로 도착) 또는 안쪽 방향 (front: 앞이 칸을 향함, 전진으로 도착).
+               현재 자세에서 Reeds-Shepp 경로 계획.
+      TRACK  - 기어별 추종. 끝나면 DONE (노드가 후면은 Docking, 전면은 전방 주차로 넘김). 칸을 못 찾고 search_max 를 가면 ABORT.
 실행: 라이브러리 (t_parking_node, 단위 시험에서 호출)
 """
 
@@ -34,6 +35,7 @@ class TParams:
     min_count:   int   = 5                                                          # 고정에 필요한 인식 수
     search_max:  float = 1.50                                                       # 칸을 못 찾고 이만큼 가면 중단 (m)
     k_lane:      float = 2.0                                                        # 차선 방향 유지 이득 (1/s)
+    front:       bool  = False                                                      # True: 전면 (앞이 칸, 전진으로 도착)
 
 
 class Phase(Enum):
@@ -57,10 +59,10 @@ def lock_slot(dets):
     return float(np.median(d[:, 0])), float(np.median(d[:, 1])), wrap(float(yaw))
 
 
-def stage_pose(slot, dist):
-    """칸 입구 (바깥 방향 yaw) 에서 바깥으로 dist 간 자세. 로봇 앞 = 바깥, 뒤 = 칸."""
+def stage_pose(slot, dist, front=False):
+    """칸 입구 (바깥 방향 yaw) 에서 바깥으로 dist 간 자세. 후면: 앞 = 바깥, 전면: 앞 = 칸."""
     x, y, yaw = slot
-    return x + dist * math.cos(yaw), y + dist * math.sin(yaw), yaw
+    return x + dist * math.cos(yaw), y + dist * math.sin(yaw), wrap(yaw + math.pi) if front else yaw
 
 
 # ==================================================================================
@@ -97,8 +99,9 @@ class TParking:
             self.dets.append(det)
         if len(self.dets) >= self.tp.min_count and along(pose, lock_slot(self.dets)) <= -self.tp.lock_after:
             self.slot   = lock_slot(self.dets)
-            self.goal   = stage_pose(self.slot, self.tp.stage_dist)
-            self.follow = PathFollower(plan(pose, self.goal, self.cp, final_dir=-1), self.cp)
+            self.goal   = stage_pose(self.slot, self.tp.stage_dist, self.tp.front)
+            final       = 1 if self.tp.front else -1                                # 도착할 때 진행 방향
+            self.follow = PathFollower(plan(pose, self.goal, self.cp, final_dir=final), self.cp)
             self.phase  = Phase.TRACK
             return self.follow.step(pose)
         if math.dist(pose[:2], self.start[:2]) > self.tp.search_max:

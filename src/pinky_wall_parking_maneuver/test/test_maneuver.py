@@ -21,6 +21,7 @@ from pinky_wall_parking_maneuver.car_path import wrap                           
 from pinky_wall_parking_maneuver.t_parking import along                             # 진행 방향 거리
 from pinky_wall_parking_maneuver.t_parking import Phase                             # 상태 이름
 from pinky_wall_parking_maneuver.t_parking import stage_pose                        # 정렬 자세
+from pinky_wall_parking_maneuver.t_parking import TParams                           # T자 파라미터
 from pinky_wall_parking_maneuver.t_parking import TParking                          # T자 상태 기계
 
 
@@ -104,3 +105,18 @@ def test_t_parking_no_slot():
     t = TParking()
     run(lambda p, i: None if t.phase == Phase.ABORT else t.step(p, None), (0.0, 0.0, 0.0))
     assert t.phase == Phase.ABORT and t.reason == "slot not found"
+
+
+# ==================================================================================
+# 전면: 앞이 칸을 향한 정렬 자세 (입구 밖 0.272 m = 전방 주차 출발 f230), 전진으로 도착
+# ==================================================================================
+@pytest.mark.parametrize("start", [(0.0, 0.0, 0.0), (0.0, 0.02, 0.05), (0.2, -0.01, -0.05)])
+def test_t_parking_front(start):
+    t, det = TParking(tp=TParams(front=True, stage_dist=0.272)), detector(2)
+    goal   = stage_pose(SLOT, 0.272, front=True)
+    pose, worst, spin = run(lambda p, i: None if t.phase in (Phase.DONE, Phase.ABORT) else t.step(p, det(p, i)), start)
+    pos, yaw = err(pose, goal)
+    assert t.phase == Phase.DONE, t.reason
+    assert pos < POS_TOL and yaw < YAW_TOL, (pos, yaw)
+    assert t.follow.trackers[-1].dir == 1                                           # 마지막은 전진 (앞이 칸으로)
+    assert worst <= 1.0 + 1e-6 and not spin
