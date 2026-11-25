@@ -6,6 +6,7 @@
 방법: 전진 진입 / 후진 진입 둘 다, 이웃 상자 + 연석과 충돌 없음 (obstacles.pose_collides 로 따로 검사), 곡률 한도,
       칸 방향 각도 <= 45 deg, 진입 기어, 145 mm 칸 (이웃이 라인에 붙음) = None, 칸 회전 / 오른쪽 칸에도 같은 결과,
       PathFollower 로 단륜차 모델 (dt 0.05 s) 을 닫힌 고리로 돌려 끝 오차 / 접촉 없음.
+      keep_lines: 이웃 칸 침범 깊이 계산, 230 칸 전진 진입이 칸 선을 넘지 않음 (기본 S 자 진입은 넘음).
 실행: cd ~/pinky_wall_parking && python3 -m pytest -q src/pinky_wall_parking_maneuver/test/test_slot_parallel.py
 """
 
@@ -24,6 +25,7 @@ from pinky_wall_parking_maneuver.obstacles import Obstacles                     
 from pinky_wall_parking_maneuver.obstacles import pose_collides                     # 자세 충돌
 from pinky_wall_parking_maneuver.obstacles import robot_obb                         # 내 차체
 from pinky_wall_parking_maneuver.slot_parallel import InSlot                        # 칸 안 경로
+from pinky_wall_parking_maneuver.slot_parallel import line_intrusion                # 칸 선 침범 깊이
 from pinky_wall_parking_maneuver.slot_parallel import plan_align                    # 마무리 정렬
 from pinky_wall_parking_maneuver.slot_parallel import plan_slot_parallel            # 전체 경로
 from pinky_wall_parking_maneuver.slot_parallel import Slot                          # 칸
@@ -160,3 +162,24 @@ def test_follow_ends_in_slot():
     for pts, _ in fix or []:
         x, y, th = pts[-1]                                                          # 정렬 끝 (이상 추종)
     assert math.hypot(x + (OP.body_x[0] + OP.body_x[1]) / 2, y) < 0.016 and abs(math.degrees(th)) <= 1.0
+
+
+def test_line_intrusion_depth():
+    sp, slot = SlotParams(length=0.230), Slot(0.3, -0.1, math.radians(20), 1)       # 회전한 230 칸
+    off = (OP.body_x[0] + OP.body_x[1]) / 2                                         # 차체 중심 (base 기준)
+    assert line_intrusion(slot.to_world((-off, 0.0, 0.0)), slot, sp, OP) == 0.0     # 칸 가운데
+    pose = slot.to_world((0.115 - off, 0.0, 0.0))                                   # 차체 중심 = 나눔 선
+    assert abs(line_intrusion(pose, slot, sp, OP) - HL) < 1e-9
+    assert line_intrusion(slot.to_world((0.115 - off, 0.2, 0.0)), slot, sp, OP) == 0.0
+
+
+def test_keep_lines_230_forward():
+    slot, start, bounds = Slot(0.0, 0.0, 0.0, 1), (-0.6, 0.2, 0.0), (-0.9, 0.9, -0.07, 0.5)
+    for keep, style in ((True, "multi"), (False, "video")):
+        sp = SlotParams(length=0.230, entry_gear=1, style=style, keep_lines=keep)
+        nbs, obs = scene(slot, 0.230, sp)
+        gears = plan_slot_parallel(start, slot, nbs, bounds, CAR, OP, sp)
+        assert gears is not None
+        assert not any(pose_collides(tuple(q), obs, ObsParams(margin=0.0)) for p, _ in gears for q in p)
+        depth = max(line_intrusion(q, slot, sp, OP) for p, _ in gears for q in p)   # 최대 침범 깊이
+        assert depth < 1e-6 if keep else depth > 0.03                               # 넘지 않음 / S 자는 넘음

@@ -6,10 +6,12 @@
   2. pinky_mujoco launch_sim.launch.py (world = 위 SDF)
      physics_config: MuJoCo 설정 YAML. 비우면 포크 기본값, 이름만 주면 이 패키지 config/ 에서 찾음
      (실물 카메라 640x480, 화각 53.5° = mujoco_real_camera.yaml)
+     start_y: 로봇 출발 y (m, 장면 좌표). 비우면 장면 YAML 의 start 그대로 (칸 옆 거리 바꿔 시험할 때)
   3. 세워 둔 핑키 정답 위치 static tf: world -> parked_<i> (평가용)
 실행: ros2 launch pinky_wall_parking_sim scene_sim.launch.py
       ros2 launch pinky_wall_parking_sim scene_sim.launch.py scene:=/path/to/scene.yaml camera:=false
       ros2 launch pinky_wall_parking_sim scene_sim.launch.py camera:=true physics_config:=mujoco_real_camera.yaml
+      ros2 launch pinky_wall_parking_sim scene_sim.launch.py scene:=/path/to/scene.yaml start_y:=-0.040
 """
 
 # --- 표준 라이브러리 ---------------------------------------------------------------
@@ -37,17 +39,20 @@ WORLD_DIR = Path.home() / ".cache" / "pinky_wall_parking"                       
 SCENE     = os.path.join(get_package_share_directory("pinky_wall_parking_sim"), "config", "scene_parallel_two.yaml")
 CONFIG    = os.path.join(get_package_share_directory("pinky_wall_parking_sim"), "config")
 ARGS      = [("scene", SCENE), ("use_gpu", "true"), ("viewer", "true"), ("camera", "false"),
-             ("physics_config", "")]
+             ("physics_config", ""), ("start_y", "")]
 
 
 def setup(context):
     scene = load_scene(LaunchConfiguration("scene").perform(context))
+    start_y = LaunchConfiguration("start_y").perform(context)                       # 비우면 YAML 그대로
+    if start_y:
+        scene.setdefault("start", {})["y"] = float(start_y)
     name  = scene.get("name", "scene")
     world = write_scene_world(WORLD_DIR / f"scene_{name}.world", scene, expand_urdf() if scene.get("parked") else None)
     _, parked = scene_poses(scene)
     print(f"[pinky_wall_parking_sim] scene {name}: boxes {len(scene.get('boxes', []))}, parked "
           + ", ".join(f"({x:.3f}, {y:.3f}, {math.degrees(yaw):.1f} deg)" for x, y, yaw in parked)
-          + f", world={world}")
+          + f", start y {scene.get('start', {}).get('y', 0.0):.3f}, world={world}")
     pinky = os.path.join(get_package_share_directory("pinky_mujoco"), "launch", "launch_sim.launch.py")
     args  = {"world": str(world), **{k: LaunchConfiguration(k) for k in ("use_gpu", "viewer", "camera")}}
     cfg   = LaunchConfiguration("physics_config").perform(context)                  # 비우면 포크 기본 설정

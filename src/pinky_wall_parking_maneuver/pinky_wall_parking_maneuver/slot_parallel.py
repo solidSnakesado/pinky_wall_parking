@@ -8,6 +8,8 @@
       추종 오차로 연석 여유 안쪽에 서도 빠져나오도록 정렬만 연석 여유 0).
       연석 = 선에서 curb_margin 안쪽까지 (칸 폭 120 mm - 차체 110 mm = 양쪽 5 mm 라 이웃 여유 8 mm 와 따로).
       칸 안 반경 = R x 1.2 (0.18 m): R 그대로면 추종이 더 꺾을 여유가 없어 끝 방향 오차 약 8 deg (이상 기구학 시험).
+      keep_lines = 앞뒤 이웃 칸 사각형 (나눔 선 중심부터, 연석 선 ~ 차선 쪽 선) 도 장애물 (칸 선 넘지 않기).
+      line_intrusion = 차체가 이웃 칸 안으로 들어간 깊이 (칸 띠로 자른 차체 다각형, 주행 감시용).
 실행: 라이브러리 (주차 노드, 단위 시험에서 호출).
 """
 
@@ -21,6 +23,7 @@ from pinky_wall_parking_maneuver.hybrid_astar import gears_of                   
 from pinky_wall_parking_maneuver.hybrid_astar import HybridAStar                    # 칸 밖 계획
 from pinky_wall_parking_maneuver.obstacles import Obb                               # 상자
 from pinky_wall_parking_maneuver.obstacles import Obstacles                         # 장애물 묶음
+from pinky_wall_parking_maneuver.obstacles import robot_obb                         # 내 차체
 from pinky_wall_parking_maneuver.slot_search import InSlot                          # 칸 안 탐색
 
 
@@ -45,6 +48,7 @@ class SlotParams:
     tol_x:   float = 0.015                                                          # 정렬 허용 길이 방향 (m)
     align_timeout: float = 5.0                                                      # 정렬 탐색 시간 한도 (s)
     align_min: float = 0.012                                                        # 정렬 한 번 움직임 최소 길이 (m)
+    keep_lines: bool = False                                                        # True: 앞뒤 이웃 칸도 장애물 (칸 선 넘지 않기)
 
 
 @dataclass
@@ -78,6 +82,7 @@ def plan_slot_parallel(start, slot, neighbors, bounds, car, op, sp=None, hp=None
     entry = inside[0][0][0]                                                         # 칸 안 경로 시작 자세
     curb = slot.to_world((0.0, -sp.width / 2 + sp.curb_margin - 0.5, 0.0))          # 연석 상자 (선 안쪽 여유)
     boxes = [Obb(b.cx, b.cy, b.yaw, b.hl + sp.margin, b.hw + sp.margin) for b in neighbors]
+    boxes += line_boxes(slot, sp)                                                   # 칸 선 넘지 않기 (keep_lines)
     obs = Obstacles(boxes=boxes + [Obb(curb[0], curb[1], slot.yaw, 2.0, 0.5)])      # 칸 밖 장애물
     outside = HybridAStar(obs, bounds, car, op, hp).plan(start, entry, inside[0][1])
     if outside is None:
@@ -85,6 +90,31 @@ def plan_slot_parallel(start, slot, neighbors, bounds, car, op, sp=None, hp=None
     pts = [(x, y, a, d) for g, d in outside for x, y, a in g]                       # 칸 밖 점
     pts += [(x, y, a, d) for g, d in inside for x, y, a in g[1:]]                   # 칸 안 점
     return gears_of(pts, car.min_gear)
+
+
+def line_boxes(slot, sp):
+    """Return the front / rear neighbor slot rectangles (world Obb, line centers) if keep_lines, else []."""
+    if not sp.keep_lines:
+        return []
+    return [Obb(*slot.to_world((sx, 0.0, 0.0)), sp.length / 2, sp.width / 2) for sx in (-sp.length, sp.length)]
+
+
+def line_intrusion(pose, slot, sp, op):
+    """Return how far (m) the body at pose enters the front / rear neighbor slots (0 if it does not)."""
+    pts = [slot.to_slot((x, y, 0))[:2] for x, y in robot_obb(pose, op).corners()]     # 차체 모서리
+    for s in (1.0, -1.0):                                                           # 칸 띠 |y| <= 폭/2 로 자르기
+        out = []
+        for p, q in zip(pts, pts[1:] + pts[:1]):
+            fp, fq = s * p[1] - sp.width / 2, s * q[1] - sp.width / 2               # <= 0 = 띠 안
+            if fp <= 0.0:
+                out.append(p)
+            if fp * fq < 0.0:                                                       # 띠 경계를 지나는 변
+                t = fp / (fp - fq)
+                out.append((p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1])))
+        pts = out
+        if not pts:
+            return 0.0
+    return max(0.0, max(abs(x) for x, _ in pts) - sp.length / 2)                    # 나눔 선 밖 깊이
 
 
 def plan_align(pose, slot, neighbors, car, op, sp=None):

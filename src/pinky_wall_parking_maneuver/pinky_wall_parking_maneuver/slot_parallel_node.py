@@ -7,6 +7,7 @@
       -> 이웃 칸 중심 assoc 안의 퍼크 = 이웃 핑키 (칸 방향 OBB, 방향 앎) -> PLAN (별도 스레드, 로봇 정지)
       -> DRIVE (PathFollower 20 Hz) -> 허용 범위 밖이면 ALIGN (칸 안 정렬 왕복, 최대 max_align 번, 끝 판정 1 mm) -> DONE.
       칸 위치는 파라미터 (odom = 출발 자세 기준, 라인 인식 전 단계). 진입 방식 = style (multi / video), entry_gear.
+      keep_lines = 칸 선 (앞뒤 이웃 칸) 넘지 않기. 주행·정렬 중 이웃 칸 침범 깊이 (odom) 최대값을 끝 로그에.
       안전 정지: 주행 중 스캔 점이 내 차체 + stop_margin 안에 들어오면 STOP. odom 이 odom_timeout 넘게 끊겨도 STOP.
 실행: ros2 launch pinky_wall_parking_maneuver slot_parallel_sim.launch.py 뒤 /slot_parallel/start (Trigger) 호출
 """
@@ -44,6 +45,8 @@ from pinky_wall_parking_maneuver.obstacles import split_scan                    
 from pinky_wall_parking_maneuver.ros_helpers import compose                         # 자세 곱
 from pinky_wall_parking_maneuver.ros_helpers import path_msg                        # 경로 메시지
 from pinky_wall_parking_maneuver.ros_helpers import scan_points                     # 스캔 점
+from pinky_wall_parking_maneuver.ros_helpers import twist                           # 속도 명령
+from pinky_wall_parking_maneuver.slot_parallel import line_intrusion                # 칸 선 침범 깊이
 from pinky_wall_parking_maneuver.slot_parallel import plan_align                    # 마무리 정렬
 from pinky_wall_parking_maneuver.slot_parallel import plan_slot_parallel            # 칸 경로
 from pinky_wall_parking_maneuver.slot_parallel import Slot                          # 칸
@@ -65,7 +68,7 @@ class SlotParallelNode(Node):
         self.phase  = "IDLE"                                                        # 상태
         self.odom, self.odom_t, self.pts, self.lidar = None, 0.0, None, None        # 최신 odom, 스캔 점, 라이다 tf
         self.track, self.t0, self.gears, self.follow = None, 0.0, None, None        # 퍼크, 관측 시작, 경로, 추종
-        self.nbs, self.aligns = [], 0                                               # 이웃 상자, 정렬 횟수
+        self.nbs, self.aligns, self.intr = [], 0, 0.0                               # 이웃 상자, 정렬 횟수, 침범 (m)
         self.buf = Buffer()                                                         # tf
         self.tfl = TransformListener(self.buf, self)
         self.cmd_pub   = self.create_publisher(Twist, "cmd_vel", 10)
@@ -77,7 +80,7 @@ class SlotParallelNode(Node):
         self.create_timer(0.05, self.on_timer)                                      # 20 Hz
         self.get_logger().info(f"slot_parallel ready: slot ({self.slot.cx:.3f}, {self.slot.cy:.3f}, "
                                f"{p['slot_yaw_deg']:.1f} deg, side {self.slot.side}), length {self.sp.length:.3f}, "
-                               f"style {self.sp.style}, entry_gear {self.sp.entry_gear}")
+                               f"style {self.sp.style}, entry {self.sp.entry_gear}, keep_lines {self.sp.keep_lines}")
 
     def now(self):
         return self.get_clock().now().nanoseconds * 1e-9
@@ -103,7 +106,7 @@ class SlotParallelNode(Node):
         if self.odom is None or self.phase in ("OBSERVE", "PLAN", "DRIVE", "ALIGN"):
             response.success, response.message = False, f"busy or no odom ({self.phase})"
             return response
-        self.track, self.t0, self.aligns = PuckTrack(self.op), self.now(), 0
+        self.track, self.t0, self.aligns, self.intr = PuckTrack(self.op), self.now(), 0, 0.0
         self.set_phase("OBSERVE")
         response.success, response.message = True, "started"
         return response
@@ -145,10 +148,8 @@ class SlotParallelNode(Node):
             me = robot_obb(self.odom, self.op, self.p["stop_margin"])               # 내 차체 + 여유
             if self.pts is not None and points_in_obb(me, self.pts):
                 return self.stop("STOP scan point inside the body")
-            v, w = self.follow.step(self.odom)
-            cmd = Twist()
-            cmd.linear.x, cmd.angular.z = v, w
-            self.cmd_pub.publish(cmd)
+            self.intr = max(self.intr, line_intrusion(self.odom, self.slot, self.sp, self.op))
+            self.cmd_pub.publish(twist(*self.follow.step(self.odom)))
             if self.follow.done:
                 self.finish_drive()
 
@@ -156,7 +157,7 @@ class SlotParallelNode(Node):
         x, y, a = self.slot.to_slot(self.odom)                                      # 칸 좌표 base 자세
         x += (self.op.body_x[0] + self.op.body_x[1]) / 2                            # 차체 중심 (근사)
         self.get_logger().info(f"{self.phase} end (odom): x {x * 1000:+.1f} y {y * 1000:+.1f} mm, "
-                               f"yaw {math.degrees(a):+.2f} deg")
+                               f"yaw {math.degrees(a):+.2f} deg, line intrusion {self.intr * 1000:.1f} mm")
         fix = plan_align(self.odom, self.slot, self.nbs, self.cp, self.op, self.sp)
         if not fix or self.aligns >= self.p["max_align"]:
             return self.stop("DONE" if fix == [] else f"DONE ({'align limit' if fix else 'align not found'})")
