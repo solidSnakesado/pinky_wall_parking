@@ -1,0 +1,13 @@
+# src/pinky_wall_parking_sim/config/scene_parallel_two.yaml - 평행 주차: 세워 둔 핑키 2대 사이
+#
+# 장면 좌표 (m): 세워 둔 핑키 2대가 x 축을 따라 한 줄 (앞이 +x). base_footprint = 바퀴 축 중심,
+#   몸체는 축 기준 뒤 76 mm / 앞 42 mm (길이 118), 폭 110.
+#   빈 공간 = (0.75 - 0.076) - (0.30 + 0.042) = 0.332 m (로봇 길이 x 2.8)
+# 로봇 출발: 세워 둔 줄에서 옆으로 0.25 m 떨어진 차선, 뒤쪽 핑키보다 0.6 m 뒤, +x 방향.
+name: parallel_two
+board: {x: [-0.40, 1.40], y: [-0.30, 0.60]}
+boxes: []
+parked:
+  - {x: 0.30, y: 0.0, yaw_deg: 0}
+  - {x: 0.75, y: 0.0, yaw_deg: 0}
+start: {x: -0.30, y: 0.25, yaw_deg: 0}
