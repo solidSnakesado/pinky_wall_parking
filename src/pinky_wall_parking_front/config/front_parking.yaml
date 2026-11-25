@@ -17,6 +17,7 @@ front_parking:
     k_e: 0.025                 # 옆 오차 이득 (rad/s/mm)
     k_yaw: 1.0                 # 눈 감고 직진 yaw 이득 (1/s)
     w_max: 0.3                 # 회전 속도 한도 (rad/s)
+    turn_radius: 0.15          # 차량 조건 최소 회전 반경 (m, |w| <= v / R, 0 이면 끔)
     v_approach: 0.04           # 전진 속도 (m/s)
     median_n: 5                # 중앙값 필터 장 수
     lost_sec: 0.5              # 특징 끊김 한도 (s)

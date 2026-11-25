@@ -3,7 +3,7 @@
 역할: 칸 특징 (소실점, 칸 가운데, 모서리 간격) 으로 방향·옆 오차를 구하고, 상태에 맞는 속도 명령을 만든다. ROS 미사용.
 방법: 방향 오차 psi = atan((vp_x - cx) / f), 옆 오차 e = 칸 폭 * (center_x - vp_x) / 모서리 간격, 거리 Z = f * 칸 폭 / 모서리 간격.
       접근 중에는 w = -k_psi * psi - k_e * e. 특징이 사라지면 칸 축 방향을 odom yaw 로 유지하며 직진하고,
-      초음파 또는 odom 이동량으로 멈춘다.
+      초음파 또는 odom 이동량으로 멈춘다. 차량 조건: |w| <= min(w_max, v / turn_radius) (turn_radius 0 이면 w_max 만).
 실행: 라이브러리 (front_parking_node, test_front_control 에서 호출)
 """
 
@@ -29,6 +29,7 @@ class ControlParams:
     k_e:         float = 0.025                                                      # 옆 오차 이득 (rad/s/mm)
     k_yaw:       float = 1.0                                                        # 눈 감고 직진 yaw 이득 (1/s)
     w_max:       float = 0.3                                                        # 회전 속도 한도 (rad/s)
+    turn_radius: float = 0.15                                                       # 차량 조건 최소 회전 반경 (m, 0 이면 끔)
     v_approach:  float = 0.04                                                       # 전진 속도 (m/s)
     median_n:    int   = 5                                                          # 중앙값 필터 장 수
     lost_sec:    float = 0.5                                                        # 접근 중 특징 끊김 한도 (s)
@@ -60,8 +61,14 @@ def clip(x, limit):
     return max(-limit, min(limit, x))
 
 
+def w_limit(p):
+    if p.turn_radius <= 0.0:
+        return p.w_max
+    return min(p.w_max, p.v_approach / p.turn_radius)                               # |w| <= v / R (제자리 회전 없음)
+
+
 def steer(psi, e, p):
-    return clip(-p.k_psi * psi - p.k_e * e, p.w_max)                                # 반시계 = +
+    return clip(-p.k_psi * psi - p.k_e * e, w_limit(p))                                # 반시계 = +
 
 
 def wrap(a):
@@ -155,6 +162,6 @@ class FrontParking:
         moved   = 1000.0 * ((x - x0) * ux + (y - y0) * uy)                          # 칸 축 방향 이동 (mm)
         if moved >= self.left_mm:
             return self.finish(Phase.STOP, "odom distance")
-        w = clip(-self.p.k_yaw * wrap(yaw - self.yaw_ref), self.p.w_max)
+        w = clip(-self.p.k_yaw * wrap(yaw - self.yaw_ref), w_limit(self.p))
         self.cmd = (self.p.v_approach, w)
         return self.cmd

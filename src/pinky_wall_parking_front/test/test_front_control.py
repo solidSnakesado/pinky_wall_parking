@@ -152,3 +152,18 @@ def test_check_us():
     assert not fp.check_us(None) and not fp.check_us(0.40)
     assert fp.check_us(-0.0088) and fp.phase == Phase.STOP
     assert not fp.check_us(-0.0088)                                                 # 이미 끝남 -> 다시 True 안 됨
+
+
+# ==================================================================================
+# 차량 조건: |w| <= v / turn_radius (접근, 눈 감고 직진 모두)
+# ==================================================================================
+def test_car_limit():
+    for v in (0.02, 0.04, 0.06):
+        p = ControlParams(v_approach=v)
+        assert abs(steer(1.0, -100.0, p)) <= v / p.turn_radius + 1e-9               # 접근
+        fp = FrontParking(p)
+        fp.step(0.0, camera(250.0, 0, 0), (0.25, 0, 0))
+        for i in range(3):
+            w = fp.step(0.1 * (i + 1), None, (0.25, 0, 1.0))[1]                     # BLIND, 방향 1 rad 틀어짐
+        assert fp.phase == Phase.BLIND and abs(w) <= v / p.turn_radius + 1e-9
+    assert abs(steer(1.0, 0.0, ControlParams(turn_radius=0.0))) == 0.3              # 0 이면 w_max 만
