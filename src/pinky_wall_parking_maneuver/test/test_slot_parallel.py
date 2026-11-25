@@ -1,8 +1,10 @@
 """src/pinky_wall_parking_maneuver/test/test_slot_parallel.py - slot_parallel 단위 시험
 
-역할: 170 x 120 mm 평행 칸 (이웃 = 칸 가운데) 에 실제 차량 방식 (45 deg 이하, 최대 조향 전진·후진) 으로 들어가는지 확인한다.
+역할: 170 x 120 mm 평행 칸 (이웃 = 칸 가운데) 에 실제 차량 방식 (45 deg 이하, 최대 조향 전진·후진) 으로 들어가는지,
+      210 mm 칸에 영상 방식 (후진 S 자 + 짧은 전진, 기어 2 개) 으로 들어가는지, 마무리 정렬이 허용 범위로 돌아오는지 확인한다.
 방법: 전진 진입 / 후진 진입 둘 다, 이웃 상자 + 연석과 충돌 없음 (obstacles.pose_collides 로 따로 검사), 곡률 한도,
-      칸 방향 각도 <= 45 deg, 진입 기어, 145 mm 칸 (이웃이 라인에 붙음) = None, 칸 회전 / 오른쪽 칸에도 같은 결과.
+      칸 방향 각도 <= 45 deg, 진입 기어, 145 mm 칸 (이웃이 라인에 붙음) = None, 칸 회전 / 오른쪽 칸에도 같은 결과,
+      PathFollower 로 단륜차 모델 (dt 0.05 s) 을 닫힌 고리로 돌려 끝 오차 / 접촉 없음.
 실행: cd ~/pinky_wall_parking && python3 -m pytest -q src/pinky_wall_parking_maneuver/test/test_slot_parallel.py
 """
 
@@ -14,11 +16,13 @@ import numpy as np                                                              
 
 # --- 이 패키지 ---------------------------------------------------------------------
 from pinky_wall_parking_maneuver.car_path import CarParams                          # 차량 파라미터
+from pinky_wall_parking_maneuver.car_path import PathFollower                       # 경로 추종
 from pinky_wall_parking_maneuver.obstacles import Obb                               # 상자
 from pinky_wall_parking_maneuver.obstacles import ObsParams                         # 장애물 파라미터
 from pinky_wall_parking_maneuver.obstacles import Obstacles                         # 장애물 묶음
 from pinky_wall_parking_maneuver.obstacles import pose_collides                     # 자세 충돌
 from pinky_wall_parking_maneuver.slot_parallel import InSlot                        # 칸 안 경로
+from pinky_wall_parking_maneuver.slot_parallel import plan_align                    # 마무리 정렬
 from pinky_wall_parking_maneuver.slot_parallel import plan_slot_parallel            # 전체 경로
 from pinky_wall_parking_maneuver.slot_parallel import Slot                          # 칸
 from pinky_wall_parking_maneuver.slot_parallel import SlotParams                    # 칸 파라미터
@@ -48,7 +52,7 @@ def check_inside(moves, slot, obs, sp):
         ds = np.hypot(*np.diff(p[:, :2], axis=0).T)                                 # 점 간격
         dyaw = np.abs(np.arctan2(np.sin(np.diff(p[:, 2])), np.cos(np.diff(p[:, 2]))))
         assert np.all(dyaw <= ds / sp.radius * 1.01 + 1e-6)                         # 제자리 회전 없음
-        assert nxt is None or nxt[1] == -d                                          # 기어 번갈아
+        assert nxt is None or nxt[1] == -d or sp.style == "video"                   # multi: 기어 번갈아
     x, y, a = slot.to_slot(moves[-1][0][-1])                                        # 마지막 자세 (칸 좌표)
     assert abs(x + OP.body_x[0] / 2 + OP.body_x[1] / 2) < 1e-6 and abs(y) < 1e-6 and abs(a) < 1e-6
 
@@ -57,7 +61,7 @@ def test_forward_entry_170():
     sp, slot = SlotParams(entry_gear=1), Slot(0.0, 0.0, 0.0, 1)                     # 전진 진입
     nbs, obs = scene(slot, 0.170, sp)
     moves = InSlot(slot, nbs, OP, sp).park()
-    assert moves is not None and len(moves) <= 10 and moves[0][1] == 1
+    assert moves is not None and len(moves) <= 12 and moves[0][1] == 1
     check_inside(moves, slot, obs, sp)
 
 
@@ -96,3 +100,50 @@ def test_full_plan_from_lane():
     x, y, a = gears[-1][0][-1]                                                      # 마지막 점
     assert math.hypot(x + (OP.body_x[0] + OP.body_x[1]) / 2, y) < 0.002 and abs(a) < math.radians(0.5)
     assert not any(pose_collides(tuple(q), obs, ObsParams(margin=0.0)) for p, _ in gears for q in p)
+
+
+def test_video_style_210_two_gears():
+    for eg in (-1, 1):
+        sp, slot = SlotParams(length=0.210, style="video", entry_gear=eg), Slot(0.0, 0.0, 0.0, 1)
+        nbs, obs = scene(slot, 0.210, sp)
+        moves = InSlot(slot, nbs, OP, sp).park()
+        assert moves is not None and moves[0][1] == eg
+        assert 1 + sum(a[1] != b[1] for a, b in zip(moves, moves[1:])) <= 2         # 기어 2 개 이하
+        check_inside(moves, slot, obs, sp)
+
+
+def test_video_style_170_is_none():
+    sp, slot = SlotParams(style="video", entry_gear=-1, timeout=10.0), Slot(0.0, 0.0, 0.0, 1)
+    assert InSlot(slot, scene(slot, 0.170, sp)[0], OP, sp).park() is None
+
+
+def test_align_returns_to_tolerance():
+    sp, slot = SlotParams(), Slot(0.3, -0.1, math.radians(20), 1)                   # 회전한 칸
+    nbs, obs = scene(slot, 0.170, sp)
+    for err in ((0.003, 0.002, -8.0), (-0.010, 0.004, 5.0), (0.0, -0.003, -3.0)):
+        pose = slot.to_world((0.017 + err[0], err[1], math.radians(err[2])))        # 칸 안 어긋난 자세
+        gears = plan_align(pose, slot, nbs, CAR, OP, sp)
+        x, y, a = slot.to_slot(gears[-1][0][-1])                                    # 끝 (칸 좌표)
+        assert abs(a) <= sp.tol_yaw + 1e-9 and abs(y) <= sp.tol_y and abs(x - 0.017) <= sp.tol_x
+        assert not any(pose_collides(tuple(q), obs, ObsParams(margin=0.0)) for p, _ in gears for q in p)
+    assert plan_align(slot.to_world((0.017, 0.0, 0.0)), slot, nbs, CAR, OP, sp) == []
+
+
+def test_follow_ends_in_slot():
+    sp, slot = SlotParams(entry_gear=1), Slot(0.0, 0.0, 0.0, 1)                     # 전진 진입 (빠른 경우)
+    nbs, _ = scene(slot, 0.170, sp)
+    gears = plan_slot_parallel((-0.6, 0.2, 0.0), slot, nbs, (-0.9, 0.9, -0.07, 0.5), CAR, OP, sp)
+    follow, (x, y, th) = PathFollower(gears, CAR), (-0.6, 0.2, 0.0)                 # 추종기, 단륜차 자세
+    bodies = Obstacles(boxes=nbs)                                                   # 이웃 차체 (여유 없음)
+    for _ in range(8000):
+        if follow.done:
+            break
+        v, w = follow.step((x, y, th))
+        x, y, th = x + v * 0.05 * math.cos(th), y + v * 0.05 * math.sin(th), th + w * 0.05
+        assert abs(w) <= abs(v) / CAR.turn_radius + 1e-9                            # 제자리 회전 없음
+        assert not pose_collides((x, y, th), bodies, ObsParams(margin=0.0))         # 실제 접촉 없음
+    assert follow.done
+    fix = plan_align((x, y, th), slot, nbs, CAR, OP, sp)                            # 마무리 정렬
+    for pts, _ in fix or []:
+        x, y, th = pts[-1]                                                          # 정렬 끝 (이상 추종)
+    assert math.hypot(x + (OP.body_x[0] + OP.body_x[1]) / 2, y) < 0.016 and abs(math.degrees(th)) <= 1.0

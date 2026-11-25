@@ -28,6 +28,7 @@ setup(
     entry_points={
         'console_scripts': [
             't_parking_node = pinky_wall_parking_maneuver.t_parking_node:main',
+            'slot_parallel_node = pinky_wall_parking_maneuver.slot_parallel_node:main',
         ],
     },
 )
