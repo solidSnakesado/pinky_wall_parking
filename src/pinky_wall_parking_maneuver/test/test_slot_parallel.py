@@ -1,7 +1,8 @@
 """src/pinky_wall_parking_maneuver/test/test_slot_parallel.py - slot_parallel 단위 시험
 
 역할: 170 x 120 mm 평행 칸 (이웃 = 칸 가운데) 에 실제 차량 방식 (45 deg 이하, 최대 조향 전진·후진) 으로 들어가는지,
-      230 mm 칸에 영상 방식 (후진 S 자 + 짧은 전진, 기어 2 개) 으로 들어가는지, 마무리 정렬이 허용 범위로 돌아오는지 확인한다.
+      230 mm 칸에 영상 방식 (후진 S 자 + 짧은 전진, 기어 2 개) 으로 들어가는지, 마무리 정렬이 허용 범위로 돌아오는지
+      (정렬 한 번 움직임 >= align_min) 확인한다.
 방법: 전진 진입 / 후진 진입 둘 다, 이웃 상자 + 연석과 충돌 없음 (obstacles.pose_collides 로 따로 검사), 곡률 한도,
       칸 방향 각도 <= 45 deg, 진입 기어, 145 mm 칸 (이웃이 라인에 붙음) = None, 칸 회전 / 오른쪽 칸에도 같은 결과,
       PathFollower 로 단륜차 모델 (dt 0.05 s) 을 닫힌 고리로 돌려 끝 오차 / 접촉 없음.
@@ -133,6 +134,7 @@ def test_align_returns_to_tolerance():
         gears = plan_align(pose, slot, nbs, CAR, OP, sp)
         x, y, a = slot.to_slot(gears[-1][0][-1])                                    # 끝 (칸 좌표)
         assert abs(a) <= sp.tol_yaw + 1e-9 and abs(y) <= sp.tol_y and abs(x - 0.017) <= sp.tol_x
+        assert all(np.hypot(*np.diff(p[:, :2], axis=0).T).sum() >= sp.align_min - 1e-3 for p, _ in gears)
         near = Obstacles(boxes=obs.boxes[:2])                                       # 이웃만 (연석은 선으로 검사)
         assert not any(pose_collides(tuple(q), near, ObsParams(margin=0.0)) for p, _ in gears for q in p)
         low = min(0.0, curb_gap(slot, sp, pose)) - 1e-6                             # 정렬은 연석 선까지

@@ -5,13 +5,14 @@
 - 발행 : cmd_vel, slot_parallel/state (String), slot_parallel/path (Path, odom). 서비스: slot_parallel/start (Trigger)
 방법: OBSERVE (observe_time 동안 정지, 스캔 -> odom 점 -> 퍼크 원 맞춤 -> 중앙값 누적)
       -> 이웃 칸 중심 assoc 안의 퍼크 = 이웃 핑키 (칸 방향 OBB, 방향 앎) -> PLAN (별도 스레드, 로봇 정지)
-      -> DRIVE (PathFollower 20 Hz) -> 허용 범위 밖이면 ALIGN (칸 안 정렬 왕복, 최대 max_align 번) -> DONE.
+      -> DRIVE (PathFollower 20 Hz) -> 허용 범위 밖이면 ALIGN (칸 안 정렬 왕복, 최대 max_align 번, 끝 판정 1 mm) -> DONE.
       칸 위치는 파라미터 (odom = 출발 자세 기준, 라인 인식 전 단계). 진입 방식 = style (multi / video), entry_gear.
       안전 정지: 주행 중 스캔 점이 내 차체 + stop_margin 안에 들어오면 STOP. odom 이 odom_timeout 넘게 끊겨도 STOP.
 실행: ros2 launch pinky_wall_parking_maneuver slot_parallel_sim.launch.py 뒤 /slot_parallel/start (Trigger) 호출
 """
 
 # --- 표준 라이브러리 ---------------------------------------------------------------
+from dataclasses import replace                                                     # 파라미터 일부 바꾸기
 import math                                                                         # 삼각 함수
 import threading                                                                    # 계획 스레드
 
@@ -160,7 +161,7 @@ class SlotParallelNode(Node):
         if not fix or self.aligns >= self.p["max_align"]:
             return self.stop("DONE" if fix == [] else f"DONE ({'align limit' if fix else 'align not found'})")
         self.aligns, self.gears = self.aligns + 1, fix
-        self.follow = PathFollower(fix, self.cp)
+        self.follow = PathFollower(fix, replace(self.cp, goal_tol=0.001))           # 정렬은 끝 판정 1 mm
         self.publish_path()
         self.set_phase("ALIGN")
 

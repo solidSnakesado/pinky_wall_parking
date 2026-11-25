@@ -80,7 +80,7 @@ class InSlot:
             out.append((x, y, th))
         return out
 
-    def search(self, start, done, timeout, extra=None):
+    def search(self, start, done, timeout, extra=None, min_n=1):
         """Breadth-first search from start until done(pts, d, k, node) gives an end index; moves or None."""
         k, sp, seen, video = 1.0 / self.sp.radius, self.sp, set(), self.sp.style == "video"
         q, t0 = deque([(start, 0, None, 0, self.deep(start))]), time.monotonic()    # (자세, 기어, 부모, 전환, 구간 시작 깊음)
@@ -100,7 +100,7 @@ class InSlot:
                     pts = pts[:next((i for i, z in enumerate(pts) if self.out(z)), len(pts))]
                     more = (len(pts) // 4,) if video else ()                        # video: 짧은 움직임도
                     more += tuple(extra(pts, d, kk, node[0])) if extra else ()      # 정렬: 방향 0 길이
-                    for n in sorted({len(pts), len(pts) // 2, *more} - {0}):
+                    for n in sorted(n for n in {len(pts), len(pts) // 2, *more} if n >= min_n):
                         z = pts[n - 1]
                         key = (round(z[0] / sp.key_xy), round(z[1] / sp.key_xy), round(math.degrees(z[2]) / sp.key_deg),
                                *((d, ch) if video else ()))
@@ -146,14 +146,17 @@ class InSlot:
         if self.aligned(start):
             return []
 
-        def zero(pts, d, k, p):
+        m = max(1, round(self.sp.align_min / self.sp.ds))                           # 최소 움직임 점 수
+
+        def lengths(pts, d, k, p):
             n0 = round(abs(p[2]) * self.sp.radius / self.sp.ds)                     # 방향 0 이 되는 점 수
-            return [n0] if k != 0 and d * k * p[2] < 0 and 0 < n0 <= len(pts) else []
+            ns = [n0] if k != 0 and d * k * p[2] < 0 else []                        # 방향 0 길이
+            return [n for n in ns + [m, m * 3 // 2, 2 * m] if m <= n <= len(pts)]   # + 최소 길이 배수
 
         def done(pts, d, k, node):
-            ns = zero(pts, d, k, node[0]) + [len(pts), len(pts) // 2]               # 확인할 끝 점
-            return next((n - 1 for n in ns if n > 0 and self.aligned(pts[n - 1])), None)
-        moves = self.search(start, done, self.sp.align_timeout, zero)               # 정렬
+            ns = lengths(pts, d, k, node[0]) + [len(pts), len(pts) // 2]            # 확인할 끝 점
+            return next((n - 1 for n in ns if n >= m and self.aligned(pts[n - 1])), None)
+        moves = self.search(start, done, self.sp.align_timeout, lengths, m)         # 정렬
         if moves is None:
             return None
         out, prev = [], start                                                       # 결과, 이전 끝점

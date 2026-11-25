@@ -44,6 +44,7 @@ class SlotParams:
     tol_y:   float = 0.004                                                          # 정렬 허용 옆 (m)
     tol_x:   float = 0.015                                                          # 정렬 허용 길이 방향 (m)
     align_timeout: float = 5.0                                                      # 정렬 탐색 시간 한도 (s)
+    align_min: float = 0.012                                                        # 정렬 한 번 움직임 최소 길이 (m)
 
 
 @dataclass
@@ -88,7 +89,7 @@ def plan_slot_parallel(start, slot, neighbors, bounds, car, op, sp=None, hp=None
 
 def plan_align(pose, slot, neighbors, car, op, sp=None):
     """Return alignment gears from pose (inside the slot), [] if aligned, or None if not found."""
-    sp = replace(sp or SlotParams(), curb_margin=0.0)                               # 정렬은 연석 선 자체까지 허용
+    sp = replace(sp or SlotParams(), curb_margin=0.0, style="multi")                # 정렬: 연석 선까지, 기어 번갈아
     moves = InSlot(slot, neighbors, op, sp).align(pose)                             # 정렬 움직임
     if not moves:
         return moves
