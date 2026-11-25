@@ -1,6 +1,6 @@
 """src/pinky_wall_parking_sim/test/test_scene_world.py - scene_world 단위 시험
 
-역할: 장면 YAML -> SDF 변환 (상자 수, 세워 둔 핑키 링크·변환, 출발 자세 이동) 을 확인한다.
+역할: 장면 YAML -> SDF 변환 (상자 수, 바닥 라인, 세워 둔 핑키 링크·변환, 출발 자세 이동) 을 확인한다.
 방법: 핑키 URDF 와 같은 구조 (base_footprint -> base_link 고정, 바퀴 회전 관절, 위쪽 라이다) 의 작은 URDF 를 씀 (xacro·ROS 불필요).
 실행: cd ~/pinky_wall_parking/src/pinky_wall_parking_sim && python3 -m pytest -q test/test_scene_world.py
 """
@@ -61,6 +61,17 @@ def test_build_scene_sdf():
     uris = [u.text for u in models["parked_0"].iter("uri")]
     assert uris == ["package://p/m/lidar.dae"]                                      # mesh 경로 그대로
     assert models["parked_1"].findtext("pose").split()[:2] == ["1.0500", "-0.2500"]
+
+
+def test_lines_are_visual_only():
+    scene = {"lines": [{"p0": [0.0, 0.0], "p1": [0.3, 0.0]}, {"p0": [0.0, 0.0], "p1": [0.1, 0.1], "width": 0.01}]}
+    model = ET.fromstring(build_scene_sdf(scene)).find("world").find("model")
+    lines = [link for link in model.findall("link") if link.get("name").startswith("line_")]
+    assert len(lines) == 2
+    assert all(link.find("collision") is None for link in lines)                    # 충돌·라이다 없음
+    assert lines[0].findtext("visual/geometry/box/size") == "0.3050 0.0050 0.0010"  # 길이 + 폭 (끝 덮음)
+    pose = [float(v) for v in lines[1].findtext("pose").split()]
+    assert pose[:2] == pytest.approx([0.05, 0.05]) and pose[5] == pytest.approx(0.785398, abs=1e-5)
 
 
 def test_no_parked_needs_no_urdf():

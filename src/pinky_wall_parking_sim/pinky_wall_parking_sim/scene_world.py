@@ -2,11 +2,13 @@
 
 역할: 주차 시나리오 장면 (흰 판, 상자 벽, 세워 둔 핑키, 로봇 출발 자세) 을 YAML 로 적으면 핑키 MuJoCo 월드 로더가 읽는 SDF 를 만든다.
 방법: - 상자: slot_world.add_box 그대로 (visual + collision).
+      - 바닥 라인 (주차 칸 선): 두께 1 mm visual 상자 (collision 없음 -> 충돌·라이다에 안 잡힘, 카메라·화면에만 보임).
       - 세워 둔 핑키: 핑키 URDF (펼친 xacro) 의 링크별 visual / collision 을 고정 관절 (각도 0) 위치에 놓은 정지 model.
         mesh 는 package:// 경로 그대로 (월드 로더가 visual mesh 변환, collision mesh 는 라이다·충돌에 씀).
       - 로봇은 원점에 고정 (핑키 설정) 이므로 장면 전체를 start 의 역자세로 옮김.
 장면 YAML: board {x: [x0, x1], y: [y0, y1]}, boxes [{name, center [x, y, z], size [x, y, z], color}],
-           parked [{x, y, yaw_deg}], start {x, y, yaw_deg}   (m, deg, 장면 좌표)
+           lines [{p0 [x, y], p1 [x, y], width, color}], parked [{x, y, yaw_deg}], start {x, y, yaw_deg}
+           (m, deg, 장면 좌표)
 실행: 라이브러리 (scene_sim.launch.py, 단위 시험에서 호출)
 """
 
@@ -22,6 +24,7 @@ import yaml                                                                     
 
 # --- 이 패키지 ---------------------------------------------------------------------
 from pinky_wall_parking_sim.slot_world import add_box                               # 상자 link
+from pinky_wall_parking_sim.slot_world import COLORS                                # 색
 from pinky_wall_parking_sim.slot_world import compose                               # 2D 자세 곱
 from pinky_wall_parking_sim.slot_world import inverse                               # 2D 자세 역
 
@@ -82,6 +85,20 @@ def add_geometry(parent, tag, element):
         ET.SubElement(shape, "radius").text = geom.get("radius")
 
 
+def add_line(model, name, p0, p1, width, color):
+    """바닥 라인 = p0 -> p1 방향 visual 상자 (두께 1 mm, 판 위 0.2 mm). collision 없음."""
+    (x0, y0), (x1, y1) = p0, p1                                                     # 양 끝
+    link = ET.SubElement(model, "link", name=name)
+    yaw  = math.atan2(y1 - y0, x1 - x0)                                             # 라인 방향
+    ET.SubElement(link, "pose").text = f"{(x0 + x1) / 2:.4f} {(y0 + y1) / 2:.4f} 0.0017 0 0 {yaw:.6f}"
+    element = ET.SubElement(link, "visual", name="visual")
+    box = ET.SubElement(ET.SubElement(element, "geometry"), "box")
+    ET.SubElement(box, "size").text = f"{math.hypot(x1 - x0, y1 - y0) + width:.4f} {width:.4f} 0.0010"
+    material = ET.SubElement(element, "material")
+    ET.SubElement(material, "diffuse").text = COLORS[color]
+    ET.SubElement(material, "ambient").text = COLORS[color]
+
+
 def add_parked(world, name, pose, links):
     """세워 둔 핑키 하나 = 정지 model. pose = (x, y, yaw) 월드."""
     model = ET.SubElement(world, "model", name=name)
@@ -128,6 +145,9 @@ def build_scene_sdf(scene, urdf_xml=None):
     for i, box in enumerate(scene.get("boxes", [])):
         add_box(model, box.get("name", f"box_{i}"), tuple(box["center"]), tuple(box["size"]),
                 box.get("color", "room"))
+    for i, line in enumerate(scene.get("lines", [])):
+        add_line(model, line.get("name", f"line_{i}"), line["p0"], line["p1"], line.get("width", 0.005),
+                 line.get("color", "blue"))
     if parked:
         links = pinky_links(urdf_xml)
         for i, pose in enumerate(parked):
