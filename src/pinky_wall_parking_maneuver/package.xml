@@ -14,6 +14,14 @@
   <depend>std_msgs</depend>
   <depend>std_srvs</depend>
   <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>pinky_wall_parking_sim</exec_depend>
+  <exec_depend>pinky_wall_parking_perception</exec_depend>
+  <exec_depend>pinky_wall_parking_docking</exec_depend>
+  <exec_depend>pinky_wall_parking_dock_plugin</exec_depend>
+  <exec_depend>opennav_docking</exec_depend>
+  <exec_depend>nav2_lifecycle_manager</exec_depend>
   <!-- rsplan (Reeds-Shepp) 은 rosdep 키가 없는 pip 패키지: pip install rsplan -->
 
   <test_depend>ament_copyright</test_depend>
