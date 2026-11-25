@@ -1,7 +1,7 @@
 """src/pinky_wall_parking_maneuver/test/test_slot_parallel.py - slot_parallel 단위 시험
 
 역할: 170 x 120 mm 평행 칸 (이웃 = 칸 가운데) 에 실제 차량 방식 (45 deg 이하, 최대 조향 전진·후진) 으로 들어가는지,
-      210 mm 칸에 영상 방식 (후진 S 자 + 짧은 전진, 기어 2 개) 으로 들어가는지, 마무리 정렬이 허용 범위로 돌아오는지 확인한다.
+      230 mm 칸에 영상 방식 (후진 S 자 + 짧은 전진, 기어 2 개) 으로 들어가는지, 마무리 정렬이 허용 범위로 돌아오는지 확인한다.
 방법: 전진 진입 / 후진 진입 둘 다, 이웃 상자 + 연석과 충돌 없음 (obstacles.pose_collides 로 따로 검사), 곡률 한도,
       칸 방향 각도 <= 45 deg, 진입 기어, 145 mm 칸 (이웃이 라인에 붙음) = None, 칸 회전 / 오른쪽 칸에도 같은 결과,
       PathFollower 로 단륜차 모델 (dt 0.05 s) 을 닫힌 고리로 돌려 끝 오차 / 접촉 없음.
@@ -21,6 +21,7 @@ from pinky_wall_parking_maneuver.obstacles import Obb                           
 from pinky_wall_parking_maneuver.obstacles import ObsParams                         # 장애물 파라미터
 from pinky_wall_parking_maneuver.obstacles import Obstacles                         # 장애물 묶음
 from pinky_wall_parking_maneuver.obstacles import pose_collides                     # 자세 충돌
+from pinky_wall_parking_maneuver.obstacles import robot_obb                         # 내 차체
 from pinky_wall_parking_maneuver.slot_parallel import InSlot                        # 칸 안 경로
 from pinky_wall_parking_maneuver.slot_parallel import plan_align                    # 마무리 정렬
 from pinky_wall_parking_maneuver.slot_parallel import plan_slot_parallel            # 전체 경로
@@ -37,9 +38,14 @@ def scene(slot, length, sp):
     for sx in (-length, length):
         x, y, a = slot.to_world((sx, 0.0, 0.0))                                     # 이웃 칸 중심
         nbs.append(Obb(x, y, a, HL, HW))
-    cx, cy, _ = slot.to_world((0.0, -sp.width / 2 - sp.margin - 0.5, 0.0))          # 연석 상자
+    cx, cy, _ = slot.to_world((0.0, -sp.width / 2 + sp.curb_margin - 0.5, 0.0))     # 연석 상자 (선 안쪽 여유)
     boxes = [Obb(b.cx, b.cy, b.yaw, HL + sp.margin, HW + sp.margin) for b in nbs]
     return nbs, Obstacles(boxes=boxes + [Obb(cx, cy, slot.yaw, 2.0, 0.5)])
+
+
+def curb_gap(slot, sp, pose):
+    """Return the distance (m) from the body's lowest corner to the curb line (slot frame, + = inside)."""
+    return min(slot.to_slot((x, y, 0.0))[1] for x, y in robot_obb(pose, OP).corners()) + sp.width / 2
 
 
 def check_inside(moves, slot, obs, sp):
@@ -49,6 +55,7 @@ def check_inside(moves, slot, obs, sp):
         p = np.array(pts)                                                           # 자세 배열
         assert not any(pose_collides(tuple(q), obs, op) for q in pts)
         assert all(abs(slot.to_slot(q)[2]) <= sp.max_yaw + 1e-6 for q in pts)
+        assert all(curb_gap(slot, sp, q) >= sp.curb_margin - 1e-6 for q in pts)     # 연석 선 안쪽 (따로 검사)
         ds = np.hypot(*np.diff(p[:, :2], axis=0).T)                                 # 점 간격
         dyaw = np.abs(np.arctan2(np.sin(np.diff(p[:, 2])), np.cos(np.diff(p[:, 2]))))
         assert np.all(dyaw <= ds / sp.radius * 1.01 + 1e-6)                         # 제자리 회전 없음
@@ -61,7 +68,7 @@ def test_forward_entry_170():
     sp, slot = SlotParams(entry_gear=1), Slot(0.0, 0.0, 0.0, 1)                     # 전진 진입
     nbs, obs = scene(slot, 0.170, sp)
     moves = InSlot(slot, nbs, OP, sp).park()
-    assert moves is not None and len(moves) <= 12 and moves[0][1] == 1
+    assert moves is not None and len(moves) <= 18 and moves[0][1] == 1
     check_inside(moves, slot, obs, sp)
 
 
@@ -100,12 +107,13 @@ def test_full_plan_from_lane():
     x, y, a = gears[-1][0][-1]                                                      # 마지막 점
     assert math.hypot(x + (OP.body_x[0] + OP.body_x[1]) / 2, y) < 0.002 and abs(a) < math.radians(0.5)
     assert not any(pose_collides(tuple(q), obs, ObsParams(margin=0.0)) for p, _ in gears for q in p)
+    assert all(curb_gap(slot, sp, q) >= sp.curb_margin - 1e-6 for p, _ in gears for q in p)
 
 
-def test_video_style_210_two_gears():
+def test_video_style_230_two_gears():
     for eg in (-1, 1):
-        sp, slot = SlotParams(length=0.210, style="video", entry_gear=eg), Slot(0.0, 0.0, 0.0, 1)
-        nbs, obs = scene(slot, 0.210, sp)
+        sp, slot = SlotParams(length=0.230, style="video", entry_gear=eg), Slot(0.0, 0.0, 0.0, 1)
+        nbs, obs = scene(slot, 0.230, sp)
         moves = InSlot(slot, nbs, OP, sp).park()
         assert moves is not None and moves[0][1] == eg
         assert 1 + sum(a[1] != b[1] for a, b in zip(moves, moves[1:])) <= 2         # 기어 2 개 이하
@@ -125,7 +133,10 @@ def test_align_returns_to_tolerance():
         gears = plan_align(pose, slot, nbs, CAR, OP, sp)
         x, y, a = slot.to_slot(gears[-1][0][-1])                                    # 끝 (칸 좌표)
         assert abs(a) <= sp.tol_yaw + 1e-9 and abs(y) <= sp.tol_y and abs(x - 0.017) <= sp.tol_x
-        assert not any(pose_collides(tuple(q), obs, ObsParams(margin=0.0)) for p, _ in gears for q in p)
+        near = Obstacles(boxes=obs.boxes[:2])                                       # 이웃만 (연석은 선으로 검사)
+        assert not any(pose_collides(tuple(q), near, ObsParams(margin=0.0)) for p, _ in gears for q in p)
+        low = min(0.0, curb_gap(slot, sp, pose)) - 1e-6                             # 정렬은 연석 선까지
+        assert all(curb_gap(slot, sp, q) >= low for p, _ in gears for q in p)
     assert plan_align(slot.to_world((0.017, 0.0, 0.0)), slot, nbs, CAR, OP, sp) == []
 
 

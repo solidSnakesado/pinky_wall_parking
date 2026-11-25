@@ -1,16 +1,19 @@
 """src/pinky_wall_parking_maneuver/pinky_wall_parking_maneuver/slot_parallel.py - 평행 주차 칸 경로 (칸 밖 Hybrid A* + 칸 안 탐색)
 
-역할: 앞뒤에 차가 선 평행 칸 (핑키 170 x 120 mm = 실제 6.0 x 2.0 m 칸을 중형 세단 비율로, 또는 210 mm 칸) 에
+역할: 앞뒤에 차가 선 평행 칸 (핑키 170 x 120 mm = 실제 6.0 x 2.0 m 칸을 중형 세단 비율로, 또는 230 mm 칸) 에
       차량식으로 들어가는 경로와, 들어간 뒤 마무리 정렬 경로를 만든다. ROS 미사용.
 방법: 칸 안 = slot_search.InSlot (출차 역순, style multi = 다점 왕복 / video = 후진 S 자 + 짧은 전진).
       칸 밖 = 지금 자세 -> 칸 안 경로 시작 자세까지 hybrid_astar (이웃 상자 + 연석, 칸 안과 같은 여유).
-      둘을 이어 car_path 기어 목록으로 낸다 (PathFollower 로 추종). 정렬 = InSlot.align (지금 자세 -> 허용 범위).
+      둘을 이어 car_path 기어 목록으로 낸다 (PathFollower 로 추종). 정렬 = InSlot.align (지금 자세 -> 허용 범위,
+      추종 오차로 연석 여유 안쪽에 서도 빠져나오도록 정렬만 연석 여유 0).
+      연석 = 선에서 curb_margin 안쪽까지 (칸 폭 120 mm - 차체 110 mm = 양쪽 5 mm 라 이웃 여유 8 mm 와 따로).
       칸 안 반경 = R x 1.2 (0.18 m): R 그대로면 추종이 더 꺾을 여유가 없어 끝 방향 오차 약 8 deg (이상 기구학 시험).
 실행: 라이브러리 (주차 노드, 단위 시험에서 호출).
 """
 
 # --- 표준 라이브러리 ---------------------------------------------------------------
 from dataclasses import dataclass                                                   # 파라미터 묶음
+from dataclasses import replace                                                     # 파라미터 일부 바꾸기
 import math                                                                         # 각도
 
 # --- 이 패키지 ---------------------------------------------------------------------
@@ -25,7 +28,8 @@ from pinky_wall_parking_maneuver.slot_search import InSlot                      
 class SlotParams:
     length:  float = 0.170                                                          # 칸 길이 (m, 차체 1.44 배)
     width:   float = 0.120                                                          # 칸 폭 (m, 차체 1.09 배)
-    margin:  float = 0.008                                                          # 칸 안 여유 (m, 시뮬 추종 오차 약 9 mm)
+    margin:  float = 0.008                                                          # 이웃 차 여유 (m, 시뮬 추종 오차 약 9 mm)
+    curb_margin: float = 0.003                                                      # 연석 선 안쪽 여유 (m, 칸 폭 여유 5 mm 안)
     radius:  float = 0.18                                                           # 칸 안 계획 반경 (m, R 0.15 x 1.2)
     ds:      float = 0.001                                                          # 움직임 검사 간격 (m)
     reach:   float = 0.25                                                           # 한 번 움직임 최대 길이 (m)
@@ -71,7 +75,7 @@ def plan_slot_parallel(start, slot, neighbors, bounds, car, op, sp=None, hp=None
     if inside is None:
         return None
     entry = inside[0][0][0]                                                         # 칸 안 경로 시작 자세
-    curb = slot.to_world((0.0, -sp.width / 2 - sp.margin - 0.5, 0.0))               # 연석 상자 중심
+    curb = slot.to_world((0.0, -sp.width / 2 + sp.curb_margin - 0.5, 0.0))          # 연석 상자 (선 안쪽 여유)
     boxes = [Obb(b.cx, b.cy, b.yaw, b.hl + sp.margin, b.hw + sp.margin) for b in neighbors]
     obs = Obstacles(boxes=boxes + [Obb(curb[0], curb[1], slot.yaw, 2.0, 0.5)])      # 칸 밖 장애물
     outside = HybridAStar(obs, bounds, car, op, hp).plan(start, entry, inside[0][1])
@@ -84,7 +88,8 @@ def plan_slot_parallel(start, slot, neighbors, bounds, car, op, sp=None, hp=None
 
 def plan_align(pose, slot, neighbors, car, op, sp=None):
     """Return alignment gears from pose (inside the slot), [] if aligned, or None if not found."""
-    moves = InSlot(slot, neighbors, op, sp or SlotParams()).align(pose)             # 정렬 움직임
+    sp = replace(sp or SlotParams(), curb_margin=0.0)                               # 정렬은 연석 선 자체까지 허용
+    moves = InSlot(slot, neighbors, op, sp).align(pose)                             # 정렬 움직임
     if not moves:
         return moves
     pts = [(x, y, a, d) for g, d in moves for x, y, a in g]                         # 점 (기어 포함)

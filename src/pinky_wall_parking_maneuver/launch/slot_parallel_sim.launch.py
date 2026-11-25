@@ -2,14 +2,14 @@
 
 실행 구성:
   1. 시뮬 (pinky_wall_parking_sim/scene_sim.launch.py): scene (기본 scene_line_parallel.yaml = 170 mm 칸,
-     scene_line_parallel_210.yaml = 210 mm 칸. 칸 3 개, 앞뒤 칸에 핑키)
+     scene_line_parallel_230.yaml = 230 mm 칸. 칸 3 개, 앞뒤 칸에 핑키)
   2. slot_parallel_node: 정지 관측 (라이다 퍼크 -> 이웃 OBB) -> 칸 경로 계획 -> 차량식 추종 -> 마무리 정렬
 - 모두 use_sim_time (시뮬 /clock). 칸 위치 = 장면의 가운데 칸 (출발 = odom 원점 기준 (slot_x, slot_y), 0 deg, 차선 = 칸 왼쪽)
 인자: scene (config 파일 이름), slot_length, style (multi / video), entry_gear (-1 후진 / +1 전진 진입), slot_x, slot_y,
       use_gpu, viewer
 실행: ros2 launch pinky_wall_parking_maneuver slot_parallel_sim.launch.py entry_gear:=-1
-      ros2 launch pinky_wall_parking_maneuver slot_parallel_sim.launch.py scene:=scene_line_parallel_210.yaml \
-          slot_length:=0.210 style:=video
+      ros2 launch pinky_wall_parking_maneuver slot_parallel_sim.launch.py scene:=scene_line_parallel_230.yaml \
+          slot_length:=0.230 style:=video
       ros2 service call /slot_parallel/start std_srvs/srv/Trigger
 """
 

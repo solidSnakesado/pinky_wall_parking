@@ -8,7 +8,7 @@
         style "video" = 같은 기어 안에서 조향을 바꿀 수 있고 기어 전환 <= max_changes (실제 차 영상: 후진 S 자 + 짧은 전진).
       정렬: 지금 자세 -> 주차 허용 범위. 움직임 길이에 방향을 0 으로 만드는 길이 (|yaw| x R) 를 더함 (마무리 정렬 왕복).
       실제 차량 조건: 칸 방향과의 각도 <= max_yaw (45 deg, 운전 교본 진입 각도).
-      칸 좌표: 원점 = 칸 중심, x = 칸 길이 방향, +y = 차선 쪽, -y 끝 = 연석 (넘으면 안 됨). 충돌 = 스칼라 SAT, ds 마다.
+      칸 좌표: 원점 = 칸 중심, x = 칸 길이 방향, +y = 차선 쪽, -y 끝 = 연석 선 (curb_margin 안쪽까지만). 충돌 = 스칼라 SAT, ds 마다.
 실행: 라이브러리 (칸 Slot, 파라미터 SlotParams 는 slot_parallel 에 있음).
 """
 
@@ -42,7 +42,8 @@ class InSlot:
             x, y, a = slot.to_slot((b.cx, b.cy, b.yaw))                             # 이웃 (칸 좌표)
             boxes.append((x, y, math.cos(a), math.sin(a), b.hl + m, b.hw + m))
             top = max(top, max(slot.to_slot((cx, cy, 0.0))[1] for cx, cy in b.corners()))
-        boxes.append((0.0, -sp.width / 2 - m - 0.5, 1.0, 0.0, 2.0, 0.5))            # 연석 (칸 -y 끝)
+        curb = -sp.width / 2 + sp.curb_margin - 0.5                                 # 연석 상자 중심 (선 안쪽 여유)
+        boxes.append((0.0, curb, 1.0, 0.0, 2.0, 0.5))
         self.boxes, self.top = boxes, top + m                                       # 장애물, 이 위면 빠져나옴
 
     def body(self, p):
