@@ -1,6 +1,6 @@
 """src/pinky_wall_parking_sim/pinky_wall_parking_sim/scan_realism_node.py - 시뮬 스캔에 실물 라이다 특성 적용 (ROS 2 노드)
 
-역할: 브리지의 이상적인 스캔을 받아 scan_model 로 실물 RPLIDAR C1 특성 (근거리 오차, 스치는 광선 점 빠짐, 잡음, 장착 yaw) 을 덧입혀 다시 발행한다.
+역할: 브리지의 이상적인 스캔을 받아 scan_model 로 실물 RPLIDAR C1 특성 (근거리 오차, 입사각별 점 빠짐, 잡음, 장착 yaw) 을 덧입혀 다시 발행한다.
 - 구독 : scan_in (sensor_msgs/LaserScan, 기본 /scan)
 - 발행 : scan_out (sensor_msgs/LaserScan, 기본 /scan_real), 헤더·시간·frame 그대로
 - 파라미터: ScanModel 필드 이름 그대로 (config/lidar_real_c1.yaml), seed (-1 = 매번 다름)
@@ -43,7 +43,8 @@ class ScanRealismNode(Node):
         self.pub   = self.create_publisher(LaserScan, "scan_out", qos_profile_sensor_data)
         self.create_subscription(LaserScan, "scan_in", self.on_scan, qos_profile_sensor_data)
         m = self.model
-        self.get_logger().info(f"scan_realism: grazing {m.grazing_deg} deg, sigma {m.sigma * 1000:.1f} mm, "
+        self.get_logger().info(f"scan_realism: return prob {m.return_prob} at {m.return_deg} deg, "
+                               f"sigma {m.sigma * 1000:.1f} mm, "
                                f"near_drop {m.near_drop * 1000:.0f} mm, yaw {m.yaw_offset_deg} deg, "
                                f"near table {len(m.near_r)} pts, self pts {len(m.self_points) // 2}")
 

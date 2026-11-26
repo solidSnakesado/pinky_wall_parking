@@ -1,6 +1,6 @@
 """src/pinky_wall_parking_sim/test/test_scan_model.py - scan_model 단위 시험
 
-역할: 실물 라이다 특성 (근거리 오차, 6 cm 미만, 스치는 광선 점 빠짐, 잡음, 장착 yaw, 몸 점) 이 하나씩 맞게 들어가는지 확인한다.
+역할: 실물 라이다 특성 (근거리 오차, 6 cm 미만, 입사각별 점 빠짐, 잡음, 장착 yaw, 몸 점) 이 하나씩 맞게 들어가는지 확인한다.
 방법: 정면 벽 (x = d) 을 1° 간격 광선으로 잰 이상적인 스캔을 만들어 넣음 (ROS 불필요).
 실행: cd ~/pinky_wall_parking/src/pinky_wall_parking_sim && python3 -m pytest -q test/test_scan_model.py
 """
@@ -27,7 +27,7 @@ def wall_scan(d, half_deg=80):
 
 def quiet(**kw):
     """Model with only the named effects on."""
-    base = dict(grazing_deg=0.0, near_r=[], near_bias=[], sigma=0.0, near_drop=0.0, yaw_offset_deg=0.0)
+    base = dict(return_prob=[], near_r=[], near_bias=[], sigma=0.0, near_drop=0.0, yaw_offset_deg=0.0)
     return ScanModel(**{**base, **kw})
 
 
@@ -47,13 +47,25 @@ def test_near_drop():
     assert np.isfinite(out[0])                                                      # 옆 광선은 멀어서 남음
 
 
-def test_grazing_drops_shallow_rays_only():
+def test_incidence_threshold():
     r, a0 = wall_scan(0.30)
-    out, _ = apply(r, a0, INC, quiet(grazing_deg=18.0, neighbor_gap=0.2), np.random.default_rng(0))
+    out, _ = apply(r, a0, INC, quiet(return_deg=[18.0], return_prob=[0.0, 1.0]), np.random.default_rng(0))
     ang = np.degrees(a0 + INC * np.arange(len(r)))
     lost = ~np.isfinite(out)
     assert not lost[np.abs(ang) < 70].any()                                         # 벽과 20° 이상 = 남음
     assert lost[(np.abs(ang) > 73) & (np.abs(ang) < 80)].all()                      # 벽과 18° 미만 = 빠짐
+
+
+def test_incidence_probability():
+    r, a0 = wall_scan(0.30)
+    ang = np.abs(np.degrees(a0 + INC * np.arange(len(r))))
+    keep = []
+    for seed in range(200):
+        out, _ = apply(r, a0, INC, quiet(return_deg=[30.0], return_prob=[0.25, 0.9]), np.random.default_rng(seed))
+        keep.append(np.isfinite(out))
+    keep = np.array(keep)
+    assert abs(keep[:, (ang > 62) & (ang < 79)].mean() - 0.25) < 0.04               # 벽과 11~28° = 25 %
+    assert abs(keep[:, ang < 55].mean() - 0.9) < 0.02                               # 벽과 35° 이상 = 90 %
 
 
 def test_noise_sigma_and_seed():
