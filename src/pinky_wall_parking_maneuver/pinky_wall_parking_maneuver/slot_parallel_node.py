@@ -9,6 +9,7 @@
       칸 위치는 파라미터 (odom = 출발 자세 기준, 라인 인식 전 단계). 진입 방식 = style (multi / video), entry_gear.
       keep_lines = 칸 선 (앞뒤 이웃 칸) 넘지 않기. 주행·정렬 중 이웃 칸 침범 깊이 (odom) 최대값을 끝 로그에.
       안전 정지: 주행 중 스캔 점이 내 차체 + stop_margin 안에 들어오면 STOP. odom 이 odom_timeout 넘게 끊겨도 STOP.
+      실물 라이다 (또는 시뮬 /scan_real): laser_yaw_offset_deg (tf yaw 에 더함) -2.2, near_correction (REAL_NEAR) true.
 실행: ros2 launch pinky_wall_parking_maneuver slot_parallel_sim.launch.py 뒤 /slot_parallel/start (Trigger) 호출
 """
 
@@ -22,6 +23,7 @@ from geometry_msgs.msg import Twist                                             
 from nav_msgs.msg import Odometry                                                   # odom
 from nav_msgs.msg import Path                                                       # 경로 표시
 import numpy as np                                                                  # 점 배열
+from pinky_wall_parking_perception.line_extraction import REAL_NEAR                 # 실물 근거리 보정표
 import rclpy                                                                        # ROS 2 파이썬
 from rclpy.node import Node                                                         # 노드 기본 클래스
 from rclpy.qos import qos_profile_sensor_data                                       # 센서 QoS
@@ -63,7 +65,8 @@ class SlotParallelNode(Node):
         self.p = p = {n: self.declare_parameter(n, v).value for n, v in (
             ("slot_x", 0.600), ("slot_y", -0.200), ("slot_yaw_deg", 0.0), ("slot_side", 1),
             ("bounds", [-0.40, 1.40, -0.32, 0.50]), ("observe_time", 2.0), ("assoc", 0.08),
-            ("stop_margin", 0.003), ("odom_timeout", 0.5), ("max_align", 3))}
+            ("stop_margin", 0.003), ("odom_timeout", 0.5), ("max_align", 3),
+            ("laser_yaw_offset_deg", 0.0), ("near_correction", False))}
         self.slot   = Slot(p["slot_x"], p["slot_y"], math.radians(p["slot_yaw_deg"]), int(p["slot_side"]))
         self.phase  = "IDLE"                                                        # 상태
         self.odom, self.odom_t, self.pts, self.lidar = None, 0.0, None, None        # 최신 odom, 스캔 점, 라이다 tf
@@ -80,7 +83,8 @@ class SlotParallelNode(Node):
         self.create_timer(0.05, self.on_timer)                                      # 20 Hz
         self.get_logger().info(f"slot_parallel ready: slot ({self.slot.cx:.3f}, {self.slot.cy:.3f}, "
                                f"{p['slot_yaw_deg']:.1f} deg, side {self.slot.side}), length {self.sp.length:.3f}, "
-                               f"style {self.sp.style}, entry {self.sp.entry_gear}, keep_lines {self.sp.keep_lines}")
+                               f"style {self.sp.style}, entry {self.sp.entry_gear}, keep_lines {self.sp.keep_lines}, "
+                               f"laser yaw {p['laser_yaw_offset_deg']} deg, near {p['near_correction']}")
 
     def now(self):
         return self.get_clock().now().nanoseconds * 1e-9
@@ -94,11 +98,12 @@ class SlotParallelNode(Node):
             return
         if self.lidar is None and self.buf.can_transform("base_footprint", msg.header.frame_id, Time()):
             t = self.buf.lookup_transform("base_footprint", msg.header.frame_id, Time()).transform
-            self.lidar = (t.translation.x, t.translation.y, yaw_of(t.rotation))     # base <- 라이다
+            self.lidar = (t.translation.x, t.translation.y,                         # base <- 라이다 + 장착 보정
+                          yaw_of(t.rotation) + math.radians(self.p["laser_yaw_offset_deg"]))
         if self.lidar is None:
             return
         sensor = compose(self.odom, self.lidar)                                     # 라이다 odom 자세
-        self.pts = scan_points(msg, sensor)                                         # 스캔 점 (odom)
+        self.pts = scan_points(msg, sensor, REAL_NEAR if self.p["near_correction"] else None)  # 스캔 점 (odom)
         if self.phase == "OBSERVE":
             self.track.update(split_scan(self.pts, sensor[:2], self.op)[0])
 
@@ -192,9 +197,4 @@ def main(args=None):
     finally:
         node.halt()                                                                 # Ctrl+C 에도 정지 명령
         node.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
-
-
-if __name__ == "__main__":
-    main()
+        rclpy.try_shutdown()

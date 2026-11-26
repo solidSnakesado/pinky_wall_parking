@@ -20,11 +20,19 @@ def compose(a, b):
     return a[0] + c * b[0] - s * b[1], a[1] + s * b[0] + c * b[1], a[2] + b[2]
 
 
-def scan_points(msg, sensor):
-    """Return valid scan points (Nx2) in the frame where the lidar is at sensor (x, y, yaw)."""
+def scan_points(msg, sensor, near=None):
+    """Return valid scan points (Nx2) in the frame where the lidar is at sensor (x, y, yaw).
+
+    near: real lidar near-range table (cut, [(range, bias), ...]) as line_extraction.REAL_NEAR, None = off.
+    """
     r = np.asarray(msg.ranges, dtype=float)                                         # 거리
     a = sensor[2] + msg.angle_min + msg.angle_increment * np.arange(len(r))         # 방향 각
     ok = np.isfinite(r) & (r >= msg.range_min) & (r <= msg.range_max)               # 유효 점
+    if near is not None:                                                            # line_extraction 과 같은 보정
+        cut, table = near
+        ok &= r >= cut                                                              # 너무 가까운 값 버림
+        r_tab, d_tab = np.array(table).T
+        r = r - np.interp(r, r_tab, d_tab, left=d_tab[0], right=0.0)
     return np.column_stack([sensor[0] + r[ok] * np.cos(a[ok]), sensor[1] + r[ok] * np.sin(a[ok])])
 
 
