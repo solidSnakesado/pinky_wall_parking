@@ -6,6 +6,7 @@
   3. slot_vision (카메라 칸 특징, pinky_wall_parking_vision/slot_vision.launch.py)
   4. front_parking (카메라 + odom 전면 진입, pinky_wall_parking_front/front_parking.launch.py, 시뮬은 초음파 없음)
   5. t_parking_node (front true): 차선 주행 -> 칸 고정 -> 전면 정렬 자세 (입구 밖 0.272 m = f230) -> front_parking/start
+- lidar_model: ideal (기본) / real_c1 (시뮬 실물 라이다 특성 /scan_real + slot_detector yaw -2.2°, 근거리 보정)
 - 모두 use_sim_time (시뮬 /clock). 차선은 R + 0.272 = 0.42 m 이상 (기본 0.45 m)
 실행: ros2 launch pinky_wall_parking_maneuver t_front_sim.launch.py
       ros2 service call /t_parking/start std_srvs/srv/Trigger
@@ -19,14 +20,29 @@ from ament_index_python.packages import get_package_share_directory             
 from launch import LaunchDescription                                                # 실행 구성
 from launch.actions import DeclareLaunchArgument                                    # 인자
 from launch.actions import IncludeLaunchDescription                                 # 다른 launch 포함
+from launch.actions import OpaqueFunction                                           # 인자 값으로 구성
 from launch.launch_description_sources import PythonLaunchDescriptionSource         # .launch.py 읽기
 from launch.substitutions import LaunchConfiguration                                # 인자 값 읽기
 from launch_ros.actions import Node                                                 # 노드 실행
 
 # 시뮬로 넘기는 인자 (이름, 기본값). 출발 = 칸 입구 밖 450 mm 차선, 칸 축에서 500 mm 옆, 칸 쪽을 향함
 SIM_ARGS = [("slot_width", "130"), ("side_gap", "400"), ("start_dist", "450"), ("start_lat", "500"),
-            ("start_yaw", "-90"), ("use_gpu", "true"), ("viewer", "true"), ("camera", "true")]
+            ("start_yaw", "-90"), ("use_gpu", "true"), ("viewer", "true"), ("camera", "true"),
+            ("lidar_model", "ideal")]
 SIM_TIME = {"use_sim_time": True}
+LIDARS   = {"ideal": ("/scan", 0.0, False),                                         # 시뮬 모델 -> (스캔, yaw, 근거리)
+            "real_c1": ("/scan_real", -2.2, True)}                                  # 짝을 launch 에서 고정
+
+
+def detector(context):
+    """slot_detector matched to lidar_model (scan topic, mount yaw, near-range correction)."""
+    lidar = LaunchConfiguration("lidar_model").perform(context)
+    if lidar not in LIDARS:                                                         # 오타를 launch 시작 때 알림
+        raise ValueError(f"lidar_model must be one of {sorted(LIDARS)}: {lidar}")
+    scan, yaw, near = LIDARS[lidar]
+    return [Node(package="pinky_wall_parking_perception", executable="slot_detector", output="screen",
+                 parameters=[SIM_TIME, {"laser_yaw_offset_deg": yaw, "near_correction": near}],
+                 remappings=[("scan", scan)])]
 
 
 def include(package, name, args):
@@ -42,8 +58,7 @@ def generate_launch_description():
         *[DeclareLaunchArgument(name, default_value=value) for name, value in SIM_ARGS],
         include("pinky_wall_parking_sim", "slot_sim.launch.py",
                 {name: LaunchConfiguration(name) for name, _ in SIM_ARGS}),
-        Node(package="pinky_wall_parking_perception", executable="slot_detector",
-             parameters=[SIM_TIME], output="screen"),
+        OpaqueFunction(function=detector),
         include("pinky_wall_parking_vision", "slot_vision.launch.py",
                 {"use_sim_time": "true", "publish_debug": "false"}),
         include("pinky_wall_parking_front", "front_parking.launch.py",
