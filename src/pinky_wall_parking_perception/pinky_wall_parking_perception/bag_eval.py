@@ -17,6 +17,7 @@ src/pinky_wall_parking_perception/pinky_wall_parking_perception/bag_eval.py - �
 실행:
   ros2 run pinky_wall_parking_perception bag_eval ~/pinky_wall_parking/runs/bags/p*
   기준값 바꾸기: --split-dist 0.03 --merge-dist 0.03 --min-points 4 --max-gap 0.04
+  시뮬 실물 라이다 녹화: --topic /scan_real (실물 녹화와 같은 --laser-yaw 177.8 로 비교)
 """
 
 # ==================== 표준 라이브러리 ======================
@@ -72,7 +73,7 @@ def robot_values(slot):
 # 녹화 파일 하나 분석
 # =========================================================
 def analyze(path, args, params):
-    scans = read_scans(path)
+    scans = read_scans(path, args.topic)
     c, s  = math.cos(math.radians(args.laser_yaw)), math.sin(math.radians(args.laser_yaw))
     ranges = np.array([np.asarray(m.ranges, dtype=float) for m in scans])
     valid  = np.isfinite(ranges) & (ranges >= scans[0].range_min) & (ranges <= scans[0].range_max)
@@ -130,6 +131,7 @@ def main():
     parser.add_argument("--laser-x", type=float, default=-0.017, help="laser x in base_link (m)")
     parser.add_argument("--laser-yaw", type=float, default=180.0, help="laser yaw in base_link (deg)")
     parser.add_argument("--no-near", action="store_true", help="disable real near-range correction")
+    parser.add_argument("--topic", default="/scan", help="scan topic in the bag (sim real_c1: /scan_real)")
     args = parser.parse_args()
     params = LineParams(max_gap=args.max_gap, split_dist=args.split_dist, merge_dist=args.merge_dist,
                         min_points=args.min_points, min_length=args.min_length)
