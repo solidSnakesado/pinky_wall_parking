@@ -10,7 +10,8 @@
 인자: scene (config 파일 이름), slot_length, style (multi / video), entry_gear (-1 후진 / +1 전진 진입), slot_x, slot_y,
       start_y, keep_lines (true = 칸 선 넘지 않기), use_gpu, viewer, camera, physics_config,
       lidar_model (ideal = /scan 그대로 / real_c1 = 실물 특성 /scan_real + 노드 laser yaw -2.2°, 근거리 보정),
-      tol_x (정렬 허용 길이 방향 m, 비우면 SlotParams 기본)
+      tol_x (정렬 허용 길이 방향 m, 비우면 SlotParams 기본),
+      eval (true = slot_parallel_eval: MuJoCo 정답 위치로 최종 자세·칸 선 침범·이웃 거리·odom 오차 요약)
 실행: ros2 launch pinky_wall_parking_maneuver slot_parallel_sim.launch.py entry_gear:=-1
       ros2 launch pinky_wall_parking_maneuver slot_parallel_sim.launch.py scene:=scene_line_parallel_230.yaml \
           slot_length:=0.230 style:=video
@@ -42,7 +43,7 @@ LIDARS    = {"ideal": ("/scan", 0.0, False),                                    
              "real_c1": ("/scan_real", -2.2, True)}                                 # 짝을 launch 에서 고정
 NODE_ARGS = [("scene", "scene_line_parallel.yaml"), ("slot_length", "0.170"), ("style", "multi"),
              ("entry_gear", "-1"), ("slot_x", "0.600"), ("slot_y", "-0.200"),
-             ("start_y", ""), ("keep_lines", "false"), ("tol_x", "")]               # 노드 / 장면 인자
+             ("start_y", ""), ("keep_lines", "false"), ("tol_x", ""), ("eval", "false")]  # 노드 / 장면 인자
 
 
 def setup(context):
@@ -62,7 +63,9 @@ def setup(context):
                  "laser_yaw_offset_deg": yaw_off, "near_correction": near,
                  "bounds": [-0.40, 1.40, -0.32 - dy, 0.50 - dy],                    # 판 범위 -> 출발 기준
                  **({"tol_x": float(arg["tol_x"])} if arg["tol_x"] else {})}        # 비우면 SlotParams 기본
-    return [IncludeLaunchDescription(PythonLaunchDescriptionSource(
+    ev = [Node(package="pinky_wall_parking_maneuver", executable="slot_parallel_eval", name="slot_parallel_eval",
+               output="screen", parameters=[params])] if arg["eval"].lower() == "true" else []
+    return [*ev, IncludeLaunchDescription(PythonLaunchDescriptionSource(
                 os.path.join(sim_share, "launch", "scene_sim.launch.py")), launch_arguments=sim_args.items()),
             Node(package="pinky_wall_parking_maneuver", executable="slot_parallel_node", name="slot_parallel",
                  output="screen", parameters=[params], remappings=[("scan", scan)])]
