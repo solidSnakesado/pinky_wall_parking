@@ -69,7 +69,8 @@ def test_lines_are_visual_only():
     lines = [link for link in model.findall("link") if link.get("name").startswith("line_")]
     assert len(lines) == 2
     assert all(link.find("collision") is None for link in lines)                    # 충돌·라이다 없음
-    assert lines[0].findtext("visual/geometry/box/size") == "0.3050 0.0050 0.0010"  # 길이 + 폭 (끝 덮음)
+    assert lines[0].findtext("visual/geometry/box/size") == "0.3050 0.0050 0.0002"  # 길이 + 폭 (끝 덮음)
+    assert float(lines[0].findtext("pose").split()[2]) + 0.0001 <= 0.0004           # 선 윗면 (카메라 역투영)
     pose = [float(v) for v in lines[1].findtext("pose").split()]
     assert pose[:2] == pytest.approx([0.05, 0.05]) and pose[5] == pytest.approx(0.785398, abs=1e-5)
 

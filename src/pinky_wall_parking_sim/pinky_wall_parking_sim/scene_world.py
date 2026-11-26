@@ -2,7 +2,9 @@
 
 역할: 주차 시나리오 장면 (흰 판, 상자 벽, 세워 둔 핑키, 로봇 출발 자세) 을 YAML 로 적으면 핑키 MuJoCo 월드 로더가 읽는 SDF 를 만든다.
 방법: - 상자: slot_world.add_box 그대로 (visual + collision).
-      - 바닥 라인 (주차 칸 선): 두께 1 mm visual 상자 (collision 없음 -> 충돌·라이다에 안 잡힘, 카메라·화면에만 보임).
+      - 바닥 라인 (주차 칸 선): 두께 0.2 mm visual 상자, 윗면 0.4 mm (collision 없음 -> 충돌·라이다에 안 잡힘, 카메라·화면에만 보임).
+        흰 판도 visual 만, 윗면 0.2 mm. 로봇은 z = 0 바닥을 달리므로 선이 높으면 카메라 역투영 거리가 길어짐
+        (예전 윗면 2.2 mm -> 0.6 m 앞 약 +20 mm). 실물은 로봇·선 모두 판 위 (테이프 두께만 차이)
       - 세워 둔 핑키: 핑키 URDF (펼친 xacro) 의 링크별 visual / collision 을 고정 관절 (각도 0) 위치에 놓은 정지 model.
         mesh 는 package:// 경로 그대로 (월드 로더가 visual mesh 변환, collision mesh 는 라이다·충돌에 씀).
       - 로봇은 원점에 고정 (핑키 설정) 이므로 장면 전체를 start 의 역자세로 옮김.
@@ -86,14 +88,14 @@ def add_geometry(parent, tag, element):
 
 
 def add_line(model, name, p0, p1, width, color):
-    """바닥 라인 = p0 -> p1 방향 visual 상자 (두께 1 mm, 판 위 0.2 mm). collision 없음."""
+    """바닥 라인 = p0 -> p1 방향 visual 상자 (두께 0.2 mm, 판 윗면 0.2 mm 위에 얹힘). collision 없음."""
     (x0, y0), (x1, y1) = p0, p1                                                     # 양 끝
     link = ET.SubElement(model, "link", name=name)
     yaw  = math.atan2(y1 - y0, x1 - x0)                                             # 라인 방향
-    ET.SubElement(link, "pose").text = f"{(x0 + x1) / 2:.4f} {(y0 + y1) / 2:.4f} 0.0017 0 0 {yaw:.6f}"
+    ET.SubElement(link, "pose").text = f"{(x0 + x1) / 2:.4f} {(y0 + y1) / 2:.4f} 0.0003 0 0 {yaw:.6f}"
     element = ET.SubElement(link, "visual", name="visual")
     box = ET.SubElement(ET.SubElement(element, "geometry"), "box")
-    ET.SubElement(box, "size").text = f"{math.hypot(x1 - x0, y1 - y0) + width:.4f} {width:.4f} 0.0010"
+    ET.SubElement(box, "size").text = f"{math.hypot(x1 - x0, y1 - y0) + width:.4f} {width:.4f} 0.0002"
     material = ET.SubElement(element, "material")
     ET.SubElement(material, "diffuse").text = COLORS[color]
     ET.SubElement(material, "ambient").text = COLORS[color]
@@ -140,7 +142,7 @@ def build_scene_sdf(scene, urdf_xml=None):
     ET.SubElement(model, "pose").text = f"{shift[0]:.4f} {shift[1]:.4f} 0 0 0 {shift[2]:.6f}"
     if "board" in scene:
         (x0, x1), (y0, y1) = scene["board"]["x"], scene["board"]["y"]
-        add_box(model, "board", ((x0 + x1) / 2, (y0 + y1) / 2, 0.0005), (x1 - x0, y1 - y0, 0.001),
+        add_box(model, "board", ((x0 + x1) / 2, (y0 + y1) / 2, 0.0001), (x1 - x0, y1 - y0, 0.0002),
                 "white", collision=False)                                           # 바닥 색만
     for i, box in enumerate(scene.get("boxes", [])):
         add_box(model, box.get("name", f"box_{i}"), tuple(box["center"]), tuple(box["size"]),
