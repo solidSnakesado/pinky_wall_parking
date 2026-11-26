@@ -8,10 +8,13 @@
      (실물 카메라 640x480, 화각 53.5° = mujoco_real_camera.yaml)
      start_y: 로봇 출발 y (m, 장면 좌표). 비우면 장면 YAML 의 start 그대로 (칸 옆 거리 바꿔 시험할 때)
   3. 세워 둔 핑키 정답 위치 static tf: world -> parked_<i> (평가용)
+  4. lidar_model: ideal (기본, /scan 그대로) / real_c1 (scan_realism_node: /scan -> 실물 특성 -> /scan_real,
+     값 = config/lidar_real_c1.yaml). 처리 노드는 scan:=/scan_real 로 remap
 실행: ros2 launch pinky_wall_parking_sim scene_sim.launch.py
       ros2 launch pinky_wall_parking_sim scene_sim.launch.py scene:=/path/to/scene.yaml camera:=false
       ros2 launch pinky_wall_parking_sim scene_sim.launch.py camera:=true physics_config:=mujoco_real_camera.yaml
       ros2 launch pinky_wall_parking_sim scene_sim.launch.py scene:=/path/to/scene.yaml start_y:=-0.040
+      ros2 launch pinky_wall_parking_sim scene_sim.launch.py lidar_model:=real_c1
 """
 
 # --- 표준 라이브러리 ---------------------------------------------------------------
@@ -38,8 +41,9 @@ from pinky_wall_parking_sim.scene_world import write_scene_world                
 WORLD_DIR = Path.home() / ".cache" / "pinky_wall_parking"                           # 월드 저장 폴더
 SCENE     = os.path.join(get_package_share_directory("pinky_wall_parking_sim"), "config", "scene_parallel_two.yaml")
 CONFIG    = os.path.join(get_package_share_directory("pinky_wall_parking_sim"), "config")
+LIDARS    = {"ideal": "", "real_c1": "lidar_real_c1.yaml"}                          # 라이다 모델 -> 특성 파일
 ARGS      = [("scene", SCENE), ("use_gpu", "true"), ("viewer", "true"), ("camera", "false"),
-             ("physics_config", ""), ("start_y", "")]
+             ("physics_config", ""), ("start_y", ""), ("lidar_model", "ideal")]
 
 
 def setup(context):
@@ -65,6 +69,13 @@ def setup(context):
                   arguments=["--x", f"{x:.4f}", "--y", f"{y:.4f}", "--yaw", f"{yaw:.6f}",
                              "--frame-id", "world", "--child-frame-id", f"parked_{i}"])
              for i, (x, y, yaw) in enumerate(parked)]
+    lidar = LaunchConfiguration("lidar_model").perform(context)
+    if lidar not in LIDARS:                                                         # 오타를 launch 시작 때 알림
+        raise ValueError(f"lidar_model must be one of {sorted(LIDARS)}: {lidar}")
+    if LIDARS[lidar]:
+        tfs.append(Node(package="pinky_wall_parking_sim", executable="scan_realism_node", name="scan_realism",
+                        output="screen", parameters=[os.path.join(CONFIG, LIDARS[lidar]), {"use_sim_time": True}],
+                        remappings=[("scan_in", "/scan"), ("scan_out", "/scan_real")]))
     return [IncludeLaunchDescription(PythonLaunchDescriptionSource(pinky), launch_arguments=args.items()), *tfs]
 
 

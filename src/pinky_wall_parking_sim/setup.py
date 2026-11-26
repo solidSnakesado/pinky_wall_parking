@@ -29,6 +29,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'scan_realism_node = pinky_wall_parking_sim.scan_realism_node:main',
         ],
     },
 )
