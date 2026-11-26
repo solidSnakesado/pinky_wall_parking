@@ -2,7 +2,10 @@
 
 역할: 앞 카메라 영상 한 장에서 바닥의 파란 칸 선을 찾아 로봇 기준 (base_footprint, m) 칸 사각형 후보를 낸다. ROS 미사용.
 방법: (주차선·차선 검출의 표준 구성: 색 분리 -> 바닥 역투영 (IPM) -> 직선 검출 -> 기하 조건)
-      1. HSV 로 채도 높은 파란 픽셀만 남김 (흰 판, 회색 바닥, 검은 차체, 연한 파랑 바퀴 제외)
+      1. HSV 로 채도 높은 파란 픽셀만 남김 (흰 판, 회색 바닥, 검은 차체 제외)
+         이웃 차 (boxes, 라이다 OBB) 가 있으면 높이 box_h 의 3D 상자를 영상에 투영해 그 안 픽셀을 뺌
+         (바닥면 = 차체 그대로, 윗면만 box_margin 넓힘: 차 옆 5 mm 의 차선 쪽 / 연석 선은 살림):
+         바퀴 (파랑) 는 바닥보다 높아 역투영하면 차 뒤로 길게 뻗은 가짜 선이 되기 때문
       2. 픽셀 광선을 바닥 (z = 0) 과 만나는 점으로 (Camera: 내부 값 + URDF 장착 위치, 실물은 보정 값으로 교체)
       3. 마스크를 바닥 격자 (res m/칸) 로 역투영 (warpPerspective) -> HoughLinesP -> 같은 직선 (각도, 거리) 끼리 합침
          far 0.70 m: 그보다 멀면 픽셀 1 개가 약 1 cm 깊이라 선이 뭉개짐. 나눔 선 (시선과 수직) 은 가까울 때만 보임
@@ -46,6 +49,8 @@ class LineParams:
     length:  float = 0.230                                                          # 칸 길이 (m)
     tol_w:   float = 0.025                                                          # 폭 허용 (m)
     tol_l:   float = 0.035                                                          # 길이 허용 (m)
+    box_h:   float = 0.15                                                           # 이웃 차 상자 높이 (m, 라이다 꼭대기 약 0.125)
+    box_margin: float = 0.010                                                       # 이웃 차 상자 윗면 여유 (m, 바닥면은 0)
 
 
 @dataclass
@@ -65,6 +70,7 @@ class Camera:
         p = p or CamParams()
         self.f = (p.width / 2) / math.tan(p.hfov / 2)                               # 초점 거리 (px, 정사각 픽셀)
         self.c = (p.width / 2, p.height / 2)                                        # 주점 (camera_info 와 같음)
+        self.size = (p.width, p.height)                                             # 영상 크기 (px)
         t = math.radians(p.tilt_deg)
         ry = np.array([[math.cos(t), 0, math.sin(t)], [0, 1, 0], [-math.sin(t), 0, math.cos(t)]])
         self.pos = np.array(p.mount) + ry @ np.array(p.link)                        # 카메라 위치 (base)
@@ -80,9 +86,11 @@ class Camera:
         return (self.pos[:2, None] + rb[:2] * s).T, ok
 
     def pixel(self, pts):
-        """Return pixel coords (N, 2, index) and an in-front mask for ground points (N, 2)."""
+        """Return pixel coords (N, 2, index) and an in-front mask for ground (N, 2) or 3D (N, 3) points."""
         pts = np.asarray(pts, dtype=float)
-        pb = np.column_stack([pts, np.zeros(len(pts))]) - self.pos                  # 카메라 -> 점 (base)
+        if pts.shape[1] == 2:
+            pts = np.column_stack([pts, np.zeros(len(pts))])                        # 바닥 점 (z = 0)
+        pb = pts - self.pos                                                         # 카메라 -> 점 (base)
         po = pb @ self.rot                                                          # optical 좌표
         ok = po[:, 2] > 1e-6
         z = np.where(ok, po[:, 2], 1.0)
@@ -93,6 +101,19 @@ def line_mask(rgb, lp):
     """Return a uint8 mask of saturated blue pixels in an RGB image."""
     hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
     return cv2.inRange(hsv, (lp.hue[0], lp.sat_min, lp.val_min), (lp.hue[1], 255, 255))
+
+
+def occluder_mask(boxes, cam, lp):
+    """Return a uint8 mask of pixels covered by boxes (cx, cy, yaw, hl, hw, base frame) of height box_h."""
+    occ = np.zeros((cam.size[1], cam.size[0]), np.uint8)
+    for cx, cy, yaw, hl, hw in boxes:
+        co, si = math.cos(yaw), math.sin(yaw)
+        pts = [(cx + co * sx * (hl + m) - si * sy * (hw + m), cy + si * sx * (hl + m) + co * sy * (hw + m), z)
+               for z, m in ((0.0, 0.0), (lp.box_h, lp.box_margin)) for sx in (-1, 1) for sy in (-1, 1)]
+        px, ok = cam.pixel(pts)
+        if ok.sum() >= 3:                                                           # 카메라 앞 모서리만 (뒤쪽 차는 안 보임)
+            cv2.fillConvexPoly(occ, cv2.convexHull(np.clip(px[ok], -1e5, 1e5).astype(np.int32)), 255)
+    return occ
 
 
 def top_view(mask, cam, lp):
@@ -166,9 +187,12 @@ def find_slots(lines, lp):
     return out
 
 
-def detect(rgb, cam=None, lp=None):
-    """Return (SlotRect list, merged lines, top-view mask) for one RGB image."""
+def detect(rgb, cam=None, lp=None, boxes=None):
+    """Return (SlotRect list, merged lines, top-view mask) for one RGB image (boxes = neighbor cars, base)."""
     cam, lp = cam or Camera(), lp or LineParams()
-    top = top_view(line_mask(rgb, lp), cam, lp)
+    mask = line_mask(rgb, lp)
+    if boxes:
+        mask[occluder_mask(boxes, cam, lp) > 0] = 0                                 # 이웃 차가 덮는 픽셀 빼기
+    top = top_view(mask, cam, lp)
     lines = fit_lines(top, lp)
     return find_slots(lines, lp), lines, top
