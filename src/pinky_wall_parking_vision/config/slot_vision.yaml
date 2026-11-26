@@ -1,0 +1,20 @@
+# src/pinky_wall_parking_vision/config/slot_vision.yaml - slot_vision_node 파라미터
+#
+# 값은 slot_features.FeatureParams 기본값과 같다. 로봇별 값 (roll_deg) 은 런치 인자로 덮어쓴다.
+#   roll_deg: 로봇을 칸 축에 바르게 놓았을 때 잰 뒤 벽 기울기 각 (deg). 1호기 약 -1.4, 2호기·시뮬 0.0
+# 실수 항목은 소수점을 붙여 적는다 (정수로 적으면 파라미터 형식이 맞지 않아 노드가 시작되지 않음).
+slot_vision:
+  ros__parameters:
+    sat_min: 90                # 색 픽셀 채도 하한
+    val_min: 60                # 색 픽셀 밝기 하한
+    close_width: 31            # 줄눈 메우는 가로 길이 (px)
+    center_frac: 0.1           # 뒤 벽 기준 구간 (화면 폭 비율, 반쪽)
+    flat_tol: 4.0              # 뒤 벽·옆 벽 직선 허용 (px)
+    gap_max: 24                # 뒤 벽 구간 안 끊김 허용 (px)
+    min_back: 40               # 뒤 벽 최소 길이 (px)
+    side_min: 15               # 옆 벽 경계선 최소 점 수
+    side_jump: 15.0            # 옆 벽 경계선 한 칸 최대 변화 (px)
+    edge_margin: 3             # 화면 가장자리 여유 (px)
+    back_iter: 3               # 직선 다시 맞춤 횟수
+    roll_deg: 0.0              # 카메라 옆 기울기 보정 (로봇별, deg)
+    publish_debug: true        # 확인용 영상 발행 (구독자가 있을 때만)

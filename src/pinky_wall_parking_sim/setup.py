@@ -13,6 +13,8 @@ setup(
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch',
             glob('launch/*.launch.py')),
+        ('share/' + package_name + '/config',
+            glob('config/*.yaml')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -27,6 +29,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'scan_realism_node = pinky_wall_parking_sim.scan_realism_node:main',
         ],
     },
 )

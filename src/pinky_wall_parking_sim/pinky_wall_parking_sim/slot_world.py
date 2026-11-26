@@ -9,6 +9,9 @@ src/pinky_wall_parking_sim/pinky_wall_parking_sim/slot_world.py - 종이벽돌 �
                  -> 벽 하나 190 x 50 x 190 mm (길이 x 두께 x 높이)
 - 칸 뒤 벽은 방 뒤 벽에 붙임, 칸 왼쪽 벽은 방 옆 벽에서 side_gap 만큼 띄움
 - 칸 깊이 190 mm, 칸 안쪽 폭은 인자 (최대 190 mm = 칸 뒤 벽 길이)
+- 실물 칸 모양 (선택): mouth_width = 입구 쪽 폭 (옆 벽을 기울임, None = width 와 같음 = 나란함),
+    side_end = 방 옆 벽 (흡음판) 이 칸 입구선 밖으로 나온 길이 (None = 판 끝까지)
+    예: c1~c5 녹화 당시 = width 130, mouth_width 135 (라이다 높이 97 mm), side_gap 13, side_end 0 (입구 근처에서 끝남, 추정)
 - 벽돌·방 벽은 link 하나에 visual (색, 카메라에 보임) + collision (라이다·충돌, 화면에서는 숨김)
 - 시작 위치: 로봇은 원점 고정 (핑키 설정), 월드 전체를 model pose 로 옮겨 칸 입구 기준 로봇 자세를 맞춤
     start = (dist, lat, yaw): 입구 중심 -> 바깥쪽 dist, 옆 lat, yaw 0 = 로봇 뒷면이 칸을 향함
@@ -21,6 +24,7 @@ src/pinky_wall_parking_sim/pinky_wall_parking_sim/slot_world.py - 종이벽돌 �
 실행 (파일 확인용):
   python3 slot_world.py --width 130 --out /tmp/slot_130.world
   python3 slot_world.py --width 131 --start 0.25 0.0 0 --out /tmp/slot_start.world
+  python3 slot_world.py --width 130 --mouth 135 --gap 13 --side-end 0 --out /tmp/slot_c.world
 """
 
 # ==================== 표준 라이브러리 ======================
@@ -63,9 +67,7 @@ WALL_COLORS = {                                                                 
     "back":  ["red", "yellow"],                                                     # 칸 뒤 벽
 }
 
-# =========================================================
-# 칸 입구 중심 계산
-# =========================================================
+# --- 칸 입구 중심 계산 -------------------------------------------------------------
 def slot_opening(width, side_gap=SIDE_GAP):
     """칸 폭 width -> 입구 중심 (x, y). 칸은 방 모서리에 붙여 놓음."""
     if not 0.0 < width <= MAX_WIDTH:
@@ -74,23 +76,21 @@ def slot_opening(width, side_gap=SIDE_GAP):
     slot_y  = ROOM_BACK_Y + BRICK_THICK + SLOT_DEPTH                                # 방 뒤 벽 -> 칸 뒤 벽 -> 깊이
     return slot_x, slot_y
 
-# =========================================================
-# 칸 벽 3개의 중심·크기 계산
-# =========================================================
-def wall_layout(width, slot_x, slot_y):
-    """벽 이름 -> (중심 x, 중심 y, 크기 x, 크기 y). 입구는 +y 쪽, 칸 안쪽은 -y 방향."""
+# --- 칸 벽 3개의 중심·크기 계산 -------------------------------------------------------
+def wall_layout(width, slot_x, slot_y, mouth_width=None):
+    """벽 이름 -> (중심 x, 중심 y, 크기 x, 크기 y, yaw). 입구는 +y 쪽, 칸 안쪽은 -y 방향."""
+    mouth   = width if mouth_width is None else mouth_width                         # 입구 쪽 폭
+    tilt    = math.atan2((mouth - width) / 2, SLOT_DEPTH)                           # 옆 벽 기울기 (입구로 벌어짐 +)
     side_y  = slot_y - SLOT_DEPTH / 2                                               # 옆 벽 중심 y
     back_y  = slot_y - SLOT_DEPTH - BRICK_THICK / 2                                 # 뒤 벽 중심 y (옆 벽 뒤)
-    offset  = width / 2 + BRICK_THICK / 2                                           # 칸 중심 -> 옆 벽 중심
+    offset  = (width + mouth) / 4 + BRICK_THICK / 2                                 # 칸 중심 -> 옆 벽 중심 (가운데 폭)
     return {
-        "left":  (slot_x + offset, side_y, BRICK_THICK, BRICK_LENGTH),              # 길이 방향 = y
-        "right": (slot_x - offset, side_y, BRICK_THICK, BRICK_LENGTH),
-        "back":  (slot_x, back_y, BRICK_LENGTH, BRICK_THICK),                       # 길이 방향 = x
+        "left":  (slot_x + offset, side_y, BRICK_THICK, BRICK_LENGTH, -tilt),       # 길이 방향 = y
+        "right": (slot_x - offset, side_y, BRICK_THICK, BRICK_LENGTH, tilt),
+        "back":  (slot_x, back_y, BRICK_LENGTH, BRICK_THICK, 0.0),                  # 길이 방향 = x
     }
 
-# =========================================================
-# 시작 위치 -> 월드 model pose, 칸 입구 정답 자세
-# =========================================================
+# --- 시작 위치 -> 월드 model pose, 칸 입구 정답 자세 -------------------------------------
 def compose(a, b):
     """2D 자세 a * b. 자세 = (x, y, yaw)."""
     c, s = math.cos(a[2]), math.sin(a[2])
@@ -109,13 +109,11 @@ def start_layout(width, side_gap=SIDE_GAP, start=None):
     entrance_new = inverse(start)                                                   # start = 칸 입구 기준 로봇, 로봇 = 원점
     return compose(entrance_new, inverse(entrance)), entrance_new
 
-# =========================================================
-# 상자 하나 = SDF link (collision 은 선택)
-# =========================================================
-def add_box(model, name, center, size, color, collision=True):
-    """model 아래에 상자 link 추가. center, size = (x, y, z) m."""
+# --- 상자 하나 = SDF link (collision 은 선택) --------------------------------------
+def add_box(model, name, center, size, color, collision=True, yaw=0.0):
+    """model 아래에 상자 link 추가. center, size = (x, y, z) m, yaw = z 축 회전 (rad)."""
     link = ET.SubElement(model, "link", name=name)
-    ET.SubElement(link, "pose").text = " ".join(f"{v:.4f}" for v in center) + " 0 0 0"
+    ET.SubElement(link, "pose").text = " ".join(f"{v:.4f}" for v in center) + f" 0 0 {yaw:.6f}"
     size_text = " ".join(f"{v:.4f}" for v in size)
     tags = ("collision", "visual") if collision else ("visual",)                    # 라이다·충돌 / 화면·카메라
     for tag in tags:
@@ -127,11 +125,9 @@ def add_box(model, name, center, size, color, collision=True):
             ET.SubElement(material, "diffuse").text = COLORS[color]
             ET.SubElement(material, "ambient").text = COLORS[color]
 
-# =========================================================
-# 흰 판·방 벽 추가
-# =========================================================
-def add_room(model):
-    """흰 판 (visual 만) + 방 뒤 벽 + 방 옆 벽 (모서리까지 덮음)."""
+# --- 흰 판·방 벽 추가 -------------------------------------------------------------
+def add_room(model, side_y1=BOARD_Y[1]):
+    """흰 판 (visual 만) + 방 뒤 벽 + 방 옆 벽 (모서리부터 side_y1 까지)."""
     board_center = ((BOARD_X[0] + BOARD_X[1]) / 2, (BOARD_Y[0] + BOARD_Y[1]) / 2, BOARD_THICK / 2)
     board_size   = (BOARD_X[1] - BOARD_X[0], BOARD_Y[1] - BOARD_Y[0], BOARD_THICK)
     add_box(model, "board", board_center, board_size, "white", collision=False)     # 바닥 색만
@@ -140,16 +136,14 @@ def add_room(model):
     add_box(model, "room_back",
             ((back_x0 + back_x1) / 2, ROOM_BACK_Y - ROOM_THICK / 2, ROOM_HEIGHT / 2),
             (back_x1 - back_x0, ROOM_THICK, ROOM_HEIGHT), "room")
-    side_y0, side_y1 = ROOM_BACK_Y - ROOM_THICK, BOARD_Y[1]                         # 모서리부터
+    side_y0 = ROOM_BACK_Y - ROOM_THICK                                              # 모서리부터
     add_box(model, "room_side",
             (ROOM_SIDE_X + ROOM_THICK / 2, (side_y0 + side_y1) / 2, ROOM_HEIGHT / 2),
             (ROOM_THICK, side_y1 - side_y0, ROOM_HEIGHT), "room")
 
-# =========================================================
-# SDF 문자열 만들기
-# =========================================================
-def build_slot_sdf(width, side_gap=SIDE_GAP, start=None):
-    """칸 폭 width (m), 방 옆 벽과의 틈 side_gap (m), 시작 위치 start -> SDF 문자열."""
+# --- SDF 문자열 만들기 ------------------------------------------------------------
+def build_slot_sdf(width, side_gap=SIDE_GAP, start=None, mouth_width=None, side_end=None):
+    """칸 폭 width (m), 방 옆 벽과의 틈 side_gap (m), 시작 위치 start, 실물 칸 모양 (위 설명) -> SDF 문자열."""
     slot_x, slot_y = slot_opening(width, side_gap)
     pose, _ = start_layout(width, side_gap, start)
     sdf     = ET.Element("sdf", version="1.6")
@@ -157,38 +151,38 @@ def build_slot_sdf(width, side_gap=SIDE_GAP, start=None):
     model   = ET.SubElement(world, "model", name="slot")
     ET.SubElement(model, "static").text = "true"                                    # 움직이지 않는 벽
     ET.SubElement(model, "pose").text = f"{pose[0]:.4f} {pose[1]:.4f} 0 0 0 {pose[2]:.6f}"
-    add_room(model)
-    for wall, (x, y, sx, sy) in wall_layout(width, slot_x, slot_y).items():
+    add_room(model, BOARD_Y[1] if side_end is None else slot_y + side_end)
+    for wall, (x, y, sx, sy, yaw) in wall_layout(width, slot_x, slot_y, mouth_width).items():
         for layer in range(LAYERS):                                                 # 아래 단부터
             z = BRICK_HEIGHT * (layer + 0.5)                                        # 벽돌 중심 높이
             add_box(model, f"{wall}_{layer}", (x, y, z), (sx, sy, BRICK_HEIGHT),
-                    WALL_COLORS[wall][layer])
+                    WALL_COLORS[wall][layer], yaw=yaw)
     ET.indent(sdf, space="  ")                                                      # 사람이 읽기 쉽게
     return '<?xml version="1.0"?>\n' + ET.tostring(sdf, encoding="unicode") + "\n"
 
-# =========================================================
-# SDF 파일로 저장
-# =========================================================
-def write_slot_world(path, width, side_gap=SIDE_GAP, start=None):
+# --- SDF 파일로 저장 -------------------------------------------------------------
+def write_slot_world(path, width, side_gap=SIDE_GAP, start=None, mouth_width=None, side_end=None):
     """SDF 를 path 에 저장하고 Path 반환."""
     path = Path(path).expanduser()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(build_slot_sdf(width, side_gap, start))
+    path.write_text(build_slot_sdf(width, side_gap, start, mouth_width, side_end))
     return path
 
-# =========================================================
-# 명령줄 실행 (파일 확인용)
-# =========================================================
+# --- 명령줄 실행 (파일 확인용) --------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser(description="Write a wall slot SDF world")
     parser.add_argument("--width", type=float, default=150.0, help="slot inner width (mm)")
     parser.add_argument("--gap", type=float, default=SIDE_GAP * 1000, help="slot <-> side room wall (mm)")
     parser.add_argument("--start", type=float, nargs=3, help="dist lat (m) yaw (deg)")
+    parser.add_argument("--mouth", type=float, help="slot width at the entrance (mm, default = --width)")
+    parser.add_argument("--side-end", type=float, help="room side wall end past the entrance line (mm)")
     parser.add_argument("--out", default="/tmp/slot.world", help="output SDF path")
     args = parser.parse_args()
     width, gap = args.width / 1000.0, args.gap / 1000.0
     start = None if args.start is None else (args.start[0], args.start[1], math.radians(args.start[2]))
-    path = write_slot_world(args.out, width, gap, start)
+    mouth = None if args.mouth is None else args.mouth / 1000.0
+    end   = None if args.side_end is None else args.side_end / 1000.0
+    path = write_slot_world(args.out, width, gap, start, mouth, end)
     print(f"wrote {path}, entrance pose {start_layout(width, gap, start)[1]}")
 
 if __name__ == "__main__":
