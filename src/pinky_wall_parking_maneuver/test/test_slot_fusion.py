@@ -9,6 +9,7 @@
       - 차선 쪽 선이 없으면 후보 없음
       - 로봇 옆을 지나는 긴 수직 선이 있어도 차선 쪽 선을 고름 (진행 방향과 나란한 선만)
       - 먼 쪽 나눔 선이 라이다 칸과 5 mm 다르면 카메라 (cam+lidar), 20 mm 다르면 라이다 (lidar(cam mismatch))
+      - 차선 쪽 선이 6 mm 떨어진 긴 조각 + 로봇 쪽 짧은 조각으로 나뉘어도 한 선으로 묶어 빈 칸을 찾음
 실행: cd ~/pinky_wall_parking && python3 -m pytest -q src/pinky_wall_parking_maneuver/test/test_slot_fusion.py
 """
 
@@ -89,3 +90,10 @@ def test_camera_lidar_agreement():
     assert near.src["check"] == "cam+lidar" and abs(err(near)[0] - 0.005) < 1e-6
     far = run([LANE, CURB, div(0.735)])[0]                                          # 20 mm 차이
     assert far.src["check"] == "lidar(cam mismatch)" and err(far)[0] < 0.001
+
+
+def test_split_lane_pieces_are_grouped():
+    long_lane = seg((0.255, -0.143), (0.945, -0.143))                               # 지도에서 나뉜 차선 쪽 선
+    short_piece = seg((0.590, -0.137), (0.748, -0.137))                             # 로봇 쪽 6 mm, 짧음 (0.158 m)
+    f = run([long_lane, short_piece, CURB, div(0.715)])[0]
+    assert err(f)[0] < 0.003 and f.src["check"] == "cam+lidar"

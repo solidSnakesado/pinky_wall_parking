@@ -9,6 +9,7 @@
       - 칸 띠 (0 < t < 폭) 안의 차 중심이 칸 안에 있으면 "차 있음" -> 빼고, 차체가 칸 안으로 overlap 넘게 들어와도 뺌
       - 칸은 카메라 차선 쪽 선이 보인 구간 (+- tol_l) 안에만 둠 (선 밖의 빈 곳을 칸으로 잡지 않게)
       - 차선 쪽 선은 로봇 진행 방향과 lane_deg 안으로 나란한 선만 (나눔 선 옆을 지날 때 나눔 선을 고르지 않게)
+        고른 선과 lane_merge 안의 나란한 조각은 같은 선으로 묶음 (거리 = 길이 가중 평균, 보인 구간 = 합집합)
       - 카메라 후보와 라이다 빈 공간 후보가 같은 칸이면 중심 차이 agree 안일 때만 카메라 (check cam+lidar),
         다르면 라이다 (lidar(cam mismatch)). 한쪽만 있으면 cam only / lidar only. 임시 규칙: 실제 차는 칸 가운데에
         서 있지 않을 수 있어 라이다만으로는 칸 경계가 틀릴 수 있음 -> 카메라 나눔 선 정확도를 높인 뒤 다시 정함
@@ -37,6 +38,7 @@ class FusionParams:
     overlap: float = 0.005                                                          # 차체가 칸에 들어와도 되는 깊이 (m)
     agree:  float = 0.010                                                           # 카메라 칸과 라이다 칸 중심 일치 허용 (m)
     lane_deg: float = 30.0                                                          # 차선 쪽 선 = 로봇 진행 방향과 이 각도 안
+    lane_merge: float = 0.010                                                       # 기준 선과 이 안의 나란한 조각 = 같은 차선 쪽 선
 
 
 @dataclass
@@ -61,13 +63,19 @@ def frame(lines, robot, fp):
             best = (th, d, r, s0, s1)
     if best is None:
         return None
-    th, d, r, s0, s1 = best
+    th, d, r = best[:3]
     u = np.array([math.cos(th), math.sin(th)])
     flip = u @ [math.cos(robot[2]), math.sin(robot[2])] < 0                         # 로봇 진행 방향 쪽으로
     e = -u if flip else u
     n = -math.copysign(1.0, r) * np.array([-math.sin(th), math.cos(th)])            # 로봇 반대쪽 = 칸 쪽
-    rng = (-s1, -s0) if flip else (s0, s1)
-    return e, n, float(n @ (np.array([-math.sin(th), math.cos(th)]) * d)), rng
+    t_best, segs = float(n @ (np.array([-math.sin(th), math.cos(th)]) * d)), []
+    for th2, d2, a0, a1 in lines:                                                   # 같은 차선 쪽 선 조각 묶기
+        u2, m2 = np.array([math.cos(th2), math.sin(th2)]), np.array([-math.sin(th2), math.cos(th2)]) * d2
+        p0, p1 = m2 + u2 * a0, m2 + u2 * a1                                         # 끝점
+        if abs(u2 @ n) < math.sin(math.radians(fp.par_deg)) and abs((p0 + p1) / 2 @ n - t_best) < fp.lane_merge:
+            segs.append((float((p0 + p1) / 2 @ n), a1 - a0, sorted((float(p0 @ e), float(p1 @ e)))))
+    t0 = sum(t * w for t, w, _ in segs) / sum(w for _, w, _ in segs)                # 길이 가중 평균
+    return e, n, t0, (min(q[0] for _, _, q in segs), max(q[1] for _, _, q in segs))
 
 
 def classify(lines, e, n, t0, fp):
