@@ -1,12 +1,12 @@
 """src/pinky_wall_parking_maneuver/pinky_wall_parking_maneuver/slot_parallel_node.py - 라인 평행 칸 주차 (ROS 2 노드)
 
 역할: 정지 상태에서 라이다로 앞뒤 칸의 핑키를 찾고, 좁은 평행 칸 경로 (slot_parallel) 를 만든 뒤 차량식으로 따라가 주차한다.
-- 구독 : odom (nav_msgs/Odometry), scan (sensor_msgs/LaserScan), tf (base_footprint <- 라이다)
+- 구독 : odom (Odometry), scan (LaserScan), tf (base_footprint <- 라이다), slot_parallel/goal (PoseStamped, odom)
 - 발행 : cmd_vel, slot_parallel/state (String), slot_parallel/path (Path, odom). 서비스: slot_parallel/start (Trigger)
 방법: OBSERVE (observe_time 동안 정지, 스캔 -> odom 점 -> 퍼크 원 맞춤 -> 중앙값 누적)
       -> 이웃 칸 중심 assoc 안의 퍼크 = 이웃 핑키 (칸 방향 OBB, 방향 앎) -> PLAN (별도 스레드, 로봇 정지)
       -> DRIVE (PathFollower 20 Hz) -> 허용 범위 밖이면 ALIGN (칸 안 정렬 왕복, 최대 max_align 번, 끝 판정 1 mm) -> DONE.
-      칸 위치는 파라미터 (odom = 출발 자세 기준, 라인 인식 전 단계). 진입 방식 = style (multi / video), entry_gear.
+      칸 위치 = 파라미터 (odom = 출발 기준) 또는 goal (탐색으로 찾은 칸, 받으면 바로 시작). 진입 = style, entry_gear.
       keep_lines = 칸 선 (앞뒤 이웃 칸) 넘지 않기. 주행·정렬 중 이웃 칸 침범 깊이 (odom) 최대값을 끝 로그에.
       안전 정지: 주행 중 스캔 점이 내 차체 + stop_margin 안에 들어오면 STOP. odom 이 odom_timeout 넘게 끊겨도 STOP.
       실물 라이다 (또는 시뮬 /scan_real): laser_yaw_offset_deg (tf yaw 에 더함) -2.2, near_correction (REAL_NEAR) true.
@@ -19,10 +19,10 @@ import math                                                                     
 import threading                                                                    # 계획 스레드
 
 # --- ROS 2, 외부 라이브러리 -------------------------------------------------------
+from geometry_msgs.msg import PoseStamped                                           # 탐색으로 찾은 칸
 from geometry_msgs.msg import Twist                                                 # 속도 명령
 from nav_msgs.msg import Odometry                                                   # odom
 from nav_msgs.msg import Path                                                       # 경로 표시
-import numpy as np                                                                  # 점 배열
 from pinky_wall_parking_perception.line_extraction import REAL_NEAR                 # 실물 근거리 보정표
 import rclpy                                                                        # ROS 2 파이썬
 from rclpy.node import Node                                                         # 노드 기본 클래스
@@ -38,7 +38,6 @@ from tf2_ros import TransformListener                                           
 # --- 이 패키지 ---------------------------------------------------------------------
 from pinky_wall_parking_maneuver.car_path import CarParams                          # 차량 파라미터
 from pinky_wall_parking_maneuver.car_path import PathFollower                       # 경로 추종
-from pinky_wall_parking_maneuver.obstacles import Obb                               # 상자
 from pinky_wall_parking_maneuver.obstacles import ObsParams                         # 장애물 파라미터
 from pinky_wall_parking_maneuver.obstacles import points_in_obb                     # 안전 정지 검사
 from pinky_wall_parking_maneuver.obstacles import PuckTrack                         # 퍼크 누적
@@ -49,6 +48,7 @@ from pinky_wall_parking_maneuver.ros_helpers import path_msg                    
 from pinky_wall_parking_maneuver.ros_helpers import scan_points                     # 스캔 점
 from pinky_wall_parking_maneuver.ros_helpers import twist                           # 속도 명령
 from pinky_wall_parking_maneuver.slot_parallel import line_intrusion                # 칸 선 침범 깊이
+from pinky_wall_parking_maneuver.slot_parallel import neighbor_boxes                # 이웃 핑키 상자
 from pinky_wall_parking_maneuver.slot_parallel import plan_align                    # 마무리 정렬
 from pinky_wall_parking_maneuver.slot_parallel import plan_slot_parallel            # 칸 경로
 from pinky_wall_parking_maneuver.slot_parallel import Slot                          # 칸
@@ -80,6 +80,7 @@ class SlotParallelNode(Node):
         self.create_subscription(Odometry, "odom", self.on_odom, 10)
         self.create_subscription(LaserScan, "scan", self.on_scan, qos_profile_sensor_data)
         self.create_service(Trigger, "slot_parallel/start", self.on_start)
+        self.create_subscription(PoseStamped, "slot_parallel/goal", self.on_goal, 10)
         self.create_timer(0.05, self.on_timer)                                      # 20 Hz
         self.get_logger().info(f"slot_parallel ready: slot ({self.slot.cx:.3f}, {self.slot.cy:.3f}, "
                                f"{p['slot_yaw_deg']:.1f} deg, side {self.slot.side}), length {self.sp.length:.3f}, "
@@ -116,19 +117,18 @@ class SlotParallelNode(Node):
         response.success, response.message = True, "started"
         return response
 
+    def on_goal(self, msg):
+        q, a = msg.pose.position, yaw_of(msg.pose.orientation)                      # 칸 중심·방향 (odom)
+        self.slot = Slot(q.x, q.y, a, self.slot.side)
+        res = self.on_start(None, Trigger.Response())
+        self.get_logger().info(f"goal ({q.x:.3f}, {q.y:.3f}, {math.degrees(a):.1f} deg): {res.message}")
+
     def neighbors(self):
         """Return neighbor boxes (slot yaw) for pucks near the front / rear slot centers."""
-        hl, hw = (self.op.body_x[1] - self.op.body_x[0]) / 2, self.op.body_w        # 핑키 반치수
-        pucks, out = self.track.pucks(), []                                         # 누적 퍼크, 결과
-        for sx in (-self.sp.length, self.sp.length):
-            ex, ey, ea = self.slot.to_world((sx, 0.0, 0.0))                         # 이웃 칸 중심
-            d = [math.hypot(c[0] - ex, c[1] - ey) for c in pucks]                   # 퍼크까지 거리
-            if d and min(d) <= self.p["assoc"]:
-                c = pucks[int(np.argmin(d))]
-                out.append(Obb(float(c[0]), float(c[1]), ea, hl, hw))
-            self.get_logger().info(f"slot ({ex:.3f}, {ey:.3f}): " + (f"neighbor {min(d) * 1000:.1f} mm away"
-                                   if d and min(d) <= self.p["assoc"] else "no neighbor"))
-        return out
+        boxes, notes = neighbor_boxes(self.track.pucks(), self.slot, self.sp, self.op, self.p["assoc"])
+        for n in notes:
+            self.get_logger().info(n)
+        return boxes
 
     def plan(self, start, nbs):
         t, self.nbs = self.now(), nbs                                               # 계획 시작, 이웃
