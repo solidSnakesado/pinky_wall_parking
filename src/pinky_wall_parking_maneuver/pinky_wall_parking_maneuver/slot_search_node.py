@@ -2,14 +2,14 @@
 
 역할: 차선을 따라 저속 직진하며 카메라 칸 선 지도 (line_map) 와 라이다 앞뒤 차 (원통) 를 쌓고, slot_fusion 으로 빈 칸을
       확정하면 정지해서 slot_parallel/goal 로 주차 노드 (slot_parallel_node) 에 넘긴다.
-- 구독 : 영상 (image_topic, Image 또는 compressed = true 면 CompressedImage), odom, scan, tf (base_footprint <- 라이다)
+- 구독 : 영상 (image_topic, Image 또는 compressed = true 면 CompressedImage, reliable depth 1), odom, scan, tf
 - 발행 : cmd_vel, slot_parallel/goal (PoseStamped, odom, 칸 중심·방향), slot_search/state (String). 서비스: slot_search/start
 방법: CRUISE: 출발 방향 유지 (w = -k_yaw x 방향 오차) 로 cruise_v 직진, 영상은 image_period 마다 한 장
         - 라이다: 스캔 -> odom 점 -> 원통 원 맞춤 -> PuckTrack (odom 누적) = 이웃 차 중심
         - 카메라: LineMap.add (영상, odom, 이웃 차 상자 = 로봇 기준, 로봇 진행 방향과 나란하다고 봄) -> 지도 선
         - fuse (지도 선, 이웃 차 중심, odom) -> 첫 후보가 need 출처 (기본 cam+lidar) 이고
-          confirm_k 번 연속 confirm_tol 안이면 확정 (칸 방향이 갈리면 처음부터)
-      STOP: 정지, settle 초 뒤 마지막 confirm_k 개 칸 중심 평균을 goal 로 한 번 발행 -> DONE. max_dist 를 가도 못 찾으면 FAIL (정지)
+          최근 confirm_k 개 후보가 모두 평균에서 confirm_tol 안이면 확정 (밀려가는 창, 장마다 흔들림을 평균으로 줄임)
+      STOP: 정지, settle 초 뒤 그 confirm_k 개의 중심·방향 평균을 goal 로 한 번 발행 -> DONE. max_dist 를 가도 못 찾으면 FAIL (정지)
       칸 side 는 주차 노드 slot_side 와 같아야 함 (다르면 경고). 시뮬 = image_topic camera/image_raw, compressed false
 실행: ros2 run pinky_wall_parking_maneuver slot_search_node --ros-args -p use_sim_time:=true
       ros2 service call /slot_search/start std_srvs/srv/Trigger
@@ -30,6 +30,8 @@ from pinky_wall_parking_vision.line_map import LineMap                          
 import rclpy                                                                        # ROS 2 파이썬
 from rclpy.node import Node                                                         # 노드 기본 클래스
 from rclpy.qos import qos_profile_sensor_data                                       # 센서 QoS
+from rclpy.qos import QoSProfile                                                    # 영상 QoS
+from rclpy.qos import ReliabilityPolicy                                             # 영상 QoS
 from rclpy.time import Time                                                         # tf 최신
 from sensor_msgs.msg import CompressedImage                                         # 압축 영상
 from sensor_msgs.msg import Image                                                   # 원본 영상
@@ -64,11 +66,12 @@ class SlotSearchNode(Node):
         self.p = p = {n: self.declare_parameter(n, v).value for n, v in (
             ("image_topic", "camera/image_raw"), ("compressed", False), ("image_period", 0.2),
             ("cruise_v", 0.03), ("k_yaw", 1.5), ("max_dist", 0.6), ("need", "cam+lidar"),
-            ("confirm_k", 3), ("confirm_tol", 0.005), ("slot_side", 1), ("settle", 0.5),
+            ("confirm_k", 6), ("confirm_tol", 0.005), ("slot_side", 1), ("settle", 0.5),
             ("laser_yaw_offset_deg", 0.0), ("near_correction", False))}
         self.op, self.bridge = ObsParams(), CvBridge()
         self.phase, self.odom, self.lidar, self.start = "IDLE", None, None, None    # 상태, odom, 라이다 tf, 출발
         self.map, self.track, self.hits, self.img_t = None, None, [], -1e9          # 지도, 원통, 연속 후보, 영상 시각
+        self.dbg_t = -1e9                                                           # 진단 로그 시각
         self.buf = Buffer()
         self.tfl = TransformListener(self.buf, self)
         self.cmd_pub   = self.create_publisher(Twist, "cmd_vel", 10)
@@ -77,7 +80,8 @@ class SlotSearchNode(Node):
         self.create_subscription(Odometry, "odom", self.on_odom, 10)
         self.create_subscription(LaserScan, "scan", self.on_scan, qos_profile_sensor_data)
         img_type = CompressedImage if p["compressed"] else Image
-        self.create_subscription(img_type, p["image_topic"], self.on_image, qos_profile_sensor_data)
+        img_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE)       # 큰 영상은 best-effort 면 거의 다 잃음
+        self.create_subscription(img_type, p["image_topic"], self.on_image, img_qos)
         self.create_service(Trigger, "slot_search/start", self.on_start)
         self.create_timer(0.05, self.on_timer)                                      # 20 Hz
         self.get_logger().info(f"slot_search ready: image {p['image_topic']} (compressed {p['compressed']}), "
@@ -131,17 +135,25 @@ class SlotSearchNode(Node):
         cars = self.track.pucks()                                                   # 이웃 차 중심 (odom)
         boxes = [(*local(odom, c), 0.0, hl, hw) for c in cars]                      # 로봇 기준 상자 (방향 = 진행 방향)
         self.map.add(rgb, odom, boxes)
-        self.check(fuse(self.map.lines(), cars, odom))
+        lines = self.map.lines()
+        self.check(fuse(lines, cars, odom), len(lines), cars)
 
-    def check(self, cands):
+    def check(self, cands, n_lines, cars):
         best = cands[0] if cands else None
         if best is None or best.src["check"] != self.p["need"]:
+            if self.now() - self.dbg_t >= 1.0:                                      # 진단: 확정에 못 쓰는 경우 (1 초 1 번)
+                self.dbg_t = self.now()
+                what = (f"best ({best.cx:.3f}, {best.cy:.3f}) {best.src['check']}, {len(cands)} cands" if best
+                        else "no candidate")
+                pucks = ", ".join(f"({c[0]:.3f}, {c[1]:.3f})" for c in cars)
+                self.get_logger().info(f"skip: {what} | lines {n_lines} | cars [{pucks}]")
             return
-        if self.hits and math.hypot(best.cx - self.hits[-1].cx, best.cy - self.hits[-1].cy) > self.p["confirm_tol"]:
-            self.hits = []                                                          # 후보가 바뀜 -> 처음부터
-        self.hits.append(best)
-        self.get_logger().info(f"candidate ({best.cx:.3f}, {best.cy:.3f}) {best.src} [{len(self.hits)}]")
-        if len(self.hits) >= self.p["confirm_k"] and self.phase == "CRUISE":
+        self.hits = (self.hits + [best])[-self.p["confirm_k"]:]                     # 최근 confirm_k 개
+        mx, my = np.mean([h.cx for h in self.hits]), np.mean([h.cy for h in self.hits])
+        spread = max(math.hypot(h.cx - mx, h.cy - my) for h in self.hits)           # 평균에서 가장 먼 후보
+        self.get_logger().info(f"candidate ({best.cx:.3f}, {best.cy:.3f}) {best.src} "
+                               f"[{len(self.hits)}, spread {spread * 1000:.1f} mm]")
+        if len(self.hits) >= self.p["confirm_k"] and spread <= self.p["confirm_tol"] and self.phase == "CRUISE":
             self.stop_t = self.now()
             self.set_phase("STOP")
 
@@ -158,9 +170,10 @@ class SlotSearchNode(Node):
                 self.handoff()
 
     def handoff(self):
-        h = self.hits[-self.p["confirm_k"]:]
+        h = self.hits
         cx, cy = float(np.mean([s.cx for s in h])), float(np.mean([s.cy for s in h]))
-        yaw, side = h[-1].yaw, h[-1].side
+        yaw = math.atan2(np.mean([math.sin(s.yaw) for s in h]), np.mean([math.cos(s.yaw) for s in h]))
+        side = h[-1].side
         if side != self.p["slot_side"]:
             self.get_logger().warn(f"slot side {side} != slot_side {self.p['slot_side']} (parking node)")
         msg = PoseStamped()
