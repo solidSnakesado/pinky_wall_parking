@@ -4,6 +4,9 @@
   1. 시뮬 (pinky_wall_parking_sim/scene_sim.launch.py): scene (기본 scene_line_parallel.yaml = 170 mm 칸,
      scene_line_parallel_230.yaml = 230 mm 칸. 칸 3 개, 앞뒤 칸에 핑키)
   2. slot_parallel_node: 정지 관측 (라이다 퍼크 -> 이웃 OBB) -> 칸 경로 계획 -> 차량식 추종 -> 마무리 정렬
+  3. (search:=true) slot_search_node: 칸 위치 모름 -> 차선 따라 직진, 카메라 칸 선 + 라이다 앞뒤 차로 칸 확정
+     -> slot_parallel/goal -> 2 가 바로 주차. 카메라 켬 (camera true, physics_config 비우면 mujoco_real_camera.yaml).
+     2 의 slot_x / slot_y 는 이때 평가 (eval) 의 정답 칸으로만 쓰임
 - 모두 use_sim_time (시뮬 /clock). 칸 위치 = 장면의 가운데 칸 (장면 좌표 (slot_x, slot_y), 0 deg, 차선 = 칸 왼쪽)
 - start_y: 로봇 출발 y (장면 좌표, 비우면 0 = 장면 YAML 의 start). 노드에는 출발 (odom 원점) 기준으로 바꿔
   slot_y - start_y, bounds y - start_y 를 넘김 (두 라인 장면 모두 YAML start = 원점)
@@ -11,7 +14,8 @@
       start_y, keep_lines (true = 칸 선 넘지 않기), use_gpu, viewer, camera, physics_config,
       lidar_model (ideal = /scan 그대로 / real_c1 = 실물 특성 /scan_real + 노드 laser yaw -2.2°, 근거리 보정),
       tol_x (정렬 허용 길이 방향 m, 비우면 SlotParams 기본),
-      eval (true = slot_parallel_eval: MuJoCo 정답 위치로 최종 자세·칸 선 침범·이웃 거리·odom 오차 요약)
+      eval (true = slot_parallel_eval: MuJoCo 정답 위치로 최종 자세·칸 선 침범·이웃 거리·odom 오차 요약),
+      search (true = slot_search_node 로 칸 찾기, 시작은 /slot_search/start)
 실행: ros2 launch pinky_wall_parking_maneuver slot_parallel_sim.launch.py entry_gear:=-1
       ros2 launch pinky_wall_parking_maneuver slot_parallel_sim.launch.py scene:=scene_line_parallel_230.yaml \
           slot_length:=0.230 style:=video
@@ -22,6 +26,9 @@
       ros2 launch pinky_wall_parking_maneuver slot_parallel_sim.launch.py scene:=scene_line_parallel_230.yaml \
           slot_length:=0.230 style:=multi entry_gear:=1 keep_lines:=true lidar_model:=real_c1
       ros2 service call /slot_parallel/start std_srvs/srv/Trigger
+      ros2 launch pinky_wall_parking_maneuver slot_parallel_sim.launch.py scene:=scene_line_parallel_230.yaml \
+          slot_length:=0.230 style:=multi entry_gear:=1 keep_lines:=true lidar_model:=real_c1 search:=true eval:=true
+      ros2 service call /slot_search/start std_srvs/srv/Trigger
 """
 
 # --- 표준 라이브러리 ---------------------------------------------------------------
@@ -43,7 +50,8 @@ LIDARS    = {"ideal": ("/scan", 0.0, False),                                    
              "real_c1": ("/scan_real", -2.2, True)}                                 # 짝을 launch 에서 고정
 NODE_ARGS = [("scene", "scene_line_parallel.yaml"), ("slot_length", "0.170"), ("style", "multi"),
              ("entry_gear", "-1"), ("slot_x", "0.600"), ("slot_y", "-0.200"),
-             ("start_y", ""), ("keep_lines", "false"), ("tol_x", ""), ("eval", "false")]  # 노드 / 장면 인자
+             ("start_y", ""), ("keep_lines", "false"), ("tol_x", ""), ("eval", "false"),
+             ("search", "false")]                                                   # 노드 / 장면 인자
 
 
 def setup(context):
@@ -56,6 +64,10 @@ def setup(context):
     dy        = float(arg["start_y"] or 0.0)                                        # 출발 y (장면 좌표)
     sim_args  = {"scene": os.path.join(sim_share, "config", arg["scene"]), "start_y": arg["start_y"],
                  **{n: LaunchConfiguration(n) for n, _ in SIM_ARGS}}
+    search    = arg["search"].lower() == "true"
+    if search:                                                                      # 칸 찾기 = 카메라 필요
+        cfg = LaunchConfiguration("physics_config").perform(context)
+        sim_args.update(camera="true", physics_config=cfg or "mujoco_real_camera.yaml")
     params    = {"use_sim_time": True, "slot_x": float(arg["slot_x"]), "slot_y": float(arg["slot_y"]) - dy,
                  "slot_yaw_deg": 0.0, "slot_side": 1, "length": float(arg["slot_length"]),
                  "style": arg["style"], "entry_gear": int(arg["entry_gear"]),
@@ -65,6 +77,10 @@ def setup(context):
                  **({"tol_x": float(arg["tol_x"])} if arg["tol_x"] else {})}        # 비우면 SlotParams 기본
     ev = [Node(package="pinky_wall_parking_maneuver", executable="slot_parallel_eval", name="slot_parallel_eval",
                output="screen", parameters=[params])] if arg["eval"].lower() == "true" else []
+    ev += [Node(package="pinky_wall_parking_maneuver", executable="slot_search_node", name="slot_search",
+                output="screen", remappings=[("scan", scan)],
+                parameters=[{"use_sim_time": True, "slot_side": 1, "laser_yaw_offset_deg": yaw_off,
+                             "near_correction": near, "image_topic": "camera/image_raw"}])] if search else []
     return [*ev, IncludeLaunchDescription(PythonLaunchDescriptionSource(
                 os.path.join(sim_share, "launch", "scene_sim.launch.py")), launch_arguments=sim_args.items()),
             Node(package="pinky_wall_parking_maneuver", executable="slot_parallel_node", name="slot_parallel",
