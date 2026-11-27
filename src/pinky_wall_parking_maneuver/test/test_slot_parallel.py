@@ -26,6 +26,7 @@ from pinky_wall_parking_maneuver.obstacles import pose_collides                 
 from pinky_wall_parking_maneuver.obstacles import robot_obb                         # 내 차체
 from pinky_wall_parking_maneuver.slot_parallel import InSlot                        # 칸 안 경로
 from pinky_wall_parking_maneuver.slot_parallel import line_intrusion                # 칸 선 침범 깊이
+from pinky_wall_parking_maneuver.slot_parallel import neighbor_boxes                # 이웃 핑키 상자
 from pinky_wall_parking_maneuver.slot_parallel import plan_align                    # 마무리 정렬
 from pinky_wall_parking_maneuver.slot_parallel import plan_slot_parallel            # 전체 경로
 from pinky_wall_parking_maneuver.slot_parallel import Slot                          # 칸
@@ -183,3 +184,12 @@ def test_keep_lines_230_forward():
         assert not any(pose_collides(tuple(q), obs, ObsParams(margin=0.0)) for p, _ in gears for q in p)
         depth = max(line_intrusion(q, slot, sp, OP) for p, _ in gears for q in p)   # 최대 침범 깊이
         assert depth < 1e-6 if keep else depth > 0.03                               # 넘지 않음 / S 자는 넘음
+
+
+def test_neighbor_boxes_front_only():
+    slot = Slot(0.6, -0.2, math.radians(10.0), 1)
+    sp = SlotParams(length=0.230)
+    front = slot.to_world((0.230 + 0.005, 0.0, 0.0))[:2]                            # 앞 칸 중심에서 5 mm
+    boxes, notes = neighbor_boxes([front, (0.0, 0.0)], slot, sp, ObsParams(), 0.08)
+    assert len(boxes) == 1 and math.isclose(boxes[0].yaw, slot.yaw)
+    assert "no neighbor" in notes[0] and "5.0 mm away" in notes[1]

@@ -30,6 +30,7 @@ setup(
             't_parking_node = pinky_wall_parking_maneuver.t_parking_node:main',
             'slot_parallel_node = pinky_wall_parking_maneuver.slot_parallel_node:main',
             'slot_parallel_eval = pinky_wall_parking_maneuver.slot_parallel_eval:main',
+            'slot_search_node = pinky_wall_parking_maneuver.slot_search_node:main',
         ],
     },
 )

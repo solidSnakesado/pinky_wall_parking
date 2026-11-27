@@ -10,6 +10,7 @@
       칸 안 반경 = R x 1.2 (0.18 m): R 그대로면 추종이 더 꺾을 여유가 없어 끝 방향 오차 약 8 deg (이상 기구학 시험).
       keep_lines = 앞뒤 이웃 칸 사각형 (나눔 선 중심부터, 연석 선 ~ 차선 쪽 선) 도 장애물 (칸 선 넘지 않기).
       line_intrusion = 차체가 이웃 칸 안으로 들어간 깊이 (칸 띠로 자른 차체 다각형, 주행 감시용).
+      neighbor_boxes = 앞뒤 이웃 칸 중심 assoc 안의 라이다 원통 -> 이웃 핑키 상자 (칸 방향).
 실행: 라이브러리 (주차 노드, 단위 시험에서 호출).
 """
 
@@ -101,7 +102,7 @@ def line_boxes(slot, sp):
 
 def line_intrusion(pose, slot, sp, op):
     """Return how far (m) the body at pose enters the front / rear neighbor slots (0 if it does not)."""
-    pts = [slot.to_slot((x, y, 0))[:2] for x, y in robot_obb(pose, op).corners()]     # 차체 모서리
+    pts = [slot.to_slot((x, y, 0))[:2] for x, y in robot_obb(pose, op).corners()]   # 차체 모서리
     for s in (1.0, -1.0):                                                           # 칸 띠 |y| <= 폭/2 로 자르기
         out = []
         for p, q in zip(pts, pts[1:] + pts[:1]):
@@ -115,6 +116,21 @@ def line_intrusion(pose, slot, sp, op):
         if not pts:
             return 0.0
     return max(0.0, max(abs(x) for x, _ in pts) - sp.length / 2)                    # 나눔 선 밖 깊이
+
+
+def neighbor_boxes(pucks, slot, sp, op, assoc):
+    """Return (boxes, notes): Pinky boxes (slot yaw) for pucks within assoc of the front / rear slot centers."""
+    hl, hw = (op.body_x[1] - op.body_x[0]) / 2, op.body_w                           # 핑키 반치수
+    boxes, notes = [], []
+    for sx in (-sp.length, sp.length):
+        ex, ey, ea = slot.to_world((sx, 0.0, 0.0))                                  # 이웃 칸 중심
+        d = [math.hypot(c[0] - ex, c[1] - ey) for c in pucks]                       # 원통까지 거리
+        k = min(range(len(d)), key=d.__getitem__) if d else None
+        if k is not None and d[k] <= assoc:
+            boxes.append(Obb(float(pucks[k][0]), float(pucks[k][1]), ea, hl, hw))
+        notes.append(f"slot ({ex:.3f}, {ey:.3f}): " + (f"neighbor {d[k] * 1000:.1f} mm away"
+                     if k is not None and d[k] <= assoc else "no neighbor"))
+    return boxes, notes
 
 
 def plan_align(pose, slot, neighbors, car, op, sp=None):

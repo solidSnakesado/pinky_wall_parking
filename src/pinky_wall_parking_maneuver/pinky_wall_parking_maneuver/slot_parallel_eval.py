@@ -2,11 +2,12 @@
 
 역할: slot_parallel_node 의 odom 기준 결과를 MuJoCo 정답 로봇 위치로 다시 계산해 비교한다 (시뮬 전용, 주행에는 관여 안 함).
 - 구독 : ground_truth (geometry_msgs/PoseStamped, world = 로봇 출발 = odom 원점), odom (nav_msgs/Odometry),
-         slot_parallel/state (String), tf world -> parked_<i> (세워 둔 핑키 정답)
+         slot_parallel/state (String), tf world -> parked_<i> (세워 둔 핑키 정답),
+         slot_parallel/goal (PoseStamped, 탐색으로 찾은 칸, 있으면 정답 칸과 비교)
 - 계산 (DRIVE / ALIGN 동안 20 Hz): 칸 선 침범 깊이 (정답 / odom, slot_parallel.line_intrusion),
          이웃 핑키 차체와의 최소 거리 (정답, 겹치면 0), odom 과 정답의 위치·방향 차이 최대
 - 출력 : DONE / STOP / FAIL 때 요약 한 줄 (최종 칸 좌표 차체 중심 x, y, yaw 를 정답과 odom 으로)
-- 파라미터: slot_x, slot_y, slot_yaw_deg, slot_side (slot_parallel_node 와 같은 값, odom 기준) + SlotParams
+- 파라미터: slot_x, slot_y, slot_yaw_deg, slot_side (정답 칸, slot_parallel_node 와 같은 값, odom 기준) + SlotParams
 실행: ros2 launch pinky_wall_parking_maneuver slot_parallel_sim.launch.py eval:=true ...
 """
 
@@ -63,13 +64,14 @@ class SlotParallelEval(Node):
             ("slot_x", 0.600), ("slot_y", -0.200), ("slot_yaw_deg", 0.0), ("slot_side", 1), ("max_parked", 10))}
         self.slot = Slot(p["slot_x"], p["slot_y"], math.radians(p["slot_yaw_deg"]), int(p["slot_side"]))
         self.max_parked = int(p["max_parked"])
-        self.gt, self.odom, self.phase, self.parked = None, None, "IDLE", None
+        self.gt, self.odom, self.phase, self.parked, self.found = None, None, "IDLE", None, None
         self.reset()
         self.buf = Buffer()
         self.tfl = TransformListener(self.buf, self)
         self.create_subscription(PoseStamped, "ground_truth", self.on_gt, 10)
         self.create_subscription(Odometry, "odom", self.on_odom, 10)
         self.create_subscription(String, "slot_parallel/state", self.on_state, 10)
+        self.create_subscription(PoseStamped, "slot_parallel/goal", self.on_goal, 10)
         self.create_timer(0.05, self.on_timer)                                      # 20 Hz
         self.get_logger().info(f"slot_parallel_eval ready: slot ({self.slot.cx:.3f}, {self.slot.cy:.3f}), "
                                f"length {self.sp.length:.3f}, width {self.sp.width:.3f}")
@@ -90,6 +92,15 @@ class SlotParallelEval(Node):
 
     def on_odom(self, msg):
         self.odom = self.pose(msg.pose.pose)
+
+    def on_goal(self, msg):
+        self.found = self.pose(msg.pose)                                            # 찾은 칸 (odom)
+        self.get_logger().info(f"EVAL found slot: {self.slot_error()}")
+
+    def slot_error(self):
+        """Found slot minus the true slot, in the true slot frame."""
+        x, y, a = self.slot.to_slot(self.found)
+        return f"along {x * 1000:+.1f} mm, across {y * 1000:+.1f} mm, yaw {math.degrees(a):+.2f} deg"
 
     def neighbors(self):
         """Parked Pinky boxes from tf world -> parked_<i> (looked up once)."""
@@ -141,7 +152,8 @@ class SlotParallelEval(Node):
             f" | odom x {o[0] * 1000:+.1f} y {o[1] * 1000:+.1f} mm yaw {math.degrees(o[2]):+.2f} deg"
             f" | intrusion truth {self.intr_gt * 1000:.1f} / odom {self.intr_odom * 1000:.1f} mm"
             f" | neighbor min gap {clear} | odom err max {self.err_xy * 1000:.1f} mm "
-            f"{math.degrees(self.err_yaw):.2f} deg ({self.samples} samples)")
+            f"{math.degrees(self.err_yaw):.2f} deg ({self.samples} samples)"
+            + (f" | found slot {self.slot_error()}" if self.found else ""))
 
 
 def main(args=None):
