@@ -15,7 +15,8 @@
       lidar_model (ideal = /scan 그대로 / real_c1 = 실물 특성 /scan_real + 노드 laser yaw -2.2°, 근거리 보정),
       tol_x (정렬 허용 길이 방향 m, 비우면 SlotParams 기본),
       eval (true = slot_parallel_eval: MuJoCo 정답 위치로 최종 자세·칸 선 침범·이웃 거리·odom 오차 요약),
-      search (true = slot_search_node 로 칸 찾기, 시작은 /slot_search/start)
+      search (true = slot_search_node 로 칸 찾기, 시작은 /slot_search/start),
+      line_margin (keep_lines 칸 선 여유 m, 비우면 SlotParams 기본 0)
 실행: ros2 launch pinky_wall_parking_maneuver slot_parallel_sim.launch.py entry_gear:=-1
       ros2 launch pinky_wall_parking_maneuver slot_parallel_sim.launch.py scene:=scene_line_parallel_230.yaml \
           slot_length:=0.230 style:=video
@@ -51,7 +52,7 @@ LIDARS    = {"ideal": ("/scan", 0.0, False),                                    
 NODE_ARGS = [("scene", "scene_line_parallel.yaml"), ("slot_length", "0.170"), ("style", "multi"),
              ("entry_gear", "-1"), ("slot_x", "0.600"), ("slot_y", "-0.200"),
              ("start_y", ""), ("keep_lines", "false"), ("tol_x", ""), ("eval", "false"),
-             ("search", "false")]                                                   # 노드 / 장면 인자
+             ("search", "false"), ("line_margin", "")]                              # 노드 / 장면 인자
 
 
 def setup(context):
@@ -74,7 +75,8 @@ def setup(context):
                  "keep_lines": arg["keep_lines"].lower() == "true",
                  "laser_yaw_offset_deg": yaw_off, "near_correction": near,
                  "bounds": [-0.40, 1.40, -0.32 - dy, 0.50 - dy],                    # 판 범위 -> 출발 기준
-                 **({"tol_x": float(arg["tol_x"])} if arg["tol_x"] else {})}        # 비우면 SlotParams 기본
+                 **({"tol_x": float(arg["tol_x"])} if arg["tol_x"] else {}),
+                 **({"line_margin": float(arg["line_margin"])} if arg["line_margin"] else {})}  # 비우면 SlotParams 기본
     ev = [Node(package="pinky_wall_parking_maneuver", executable="slot_parallel_eval", name="slot_parallel_eval",
                output="screen", parameters=[params])] if arg["eval"].lower() == "true" else []
     ev += [Node(package="pinky_wall_parking_maneuver", executable="slot_search_node", name="slot_search",

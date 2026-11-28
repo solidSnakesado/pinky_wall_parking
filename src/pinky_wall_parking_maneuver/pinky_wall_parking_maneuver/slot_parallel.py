@@ -9,6 +9,7 @@
       연석 = 선에서 curb_margin 안쪽까지 (칸 폭 120 mm - 차체 110 mm = 양쪽 5 mm 라 이웃 여유 8 mm 와 따로).
       칸 안 반경 = R x 1.2 (0.18 m): R 그대로면 추종이 더 꺾을 여유가 없어 끝 방향 오차 약 8 deg (이상 기구학 시험).
       keep_lines = 앞뒤 이웃 칸 사각형 (나눔 선 중심부터, 연석 선 ~ 차선 쪽 선) 도 장애물 (칸 선 넘지 않기).
+        line_margin = 그 사각형을 칸 쪽으로 늘린 여유 (인식·추종 오차 흡수, 장애물 부풀리기). line_intrusion 은 원래 선 기준
       line_intrusion = 차체가 이웃 칸 안으로 들어간 깊이 (칸 띠로 자른 차체 다각형, 주행 감시용).
       neighbor_boxes = 앞뒤 이웃 칸 중심 assoc 안의 라이다 원통 -> 이웃 핑키 상자 (칸 방향).
 실행: 라이브러리 (주차 노드, 단위 시험에서 호출).
@@ -39,7 +40,8 @@ class SlotParams:
     reach:   float = 0.25                                                           # 한 번 움직임 최대 길이 (m)
     key_xy:  float = 0.002                                                          # 같은 상태 판정 x, y (m)
     key_deg: float = 1.0                                                            # 같은 상태 판정 yaw (deg)
-    timeout: float = 40.0                                                           # 출차 탐색 시간 한도 (s)
+    timeout: float = 300.0                                                          # 출차 탐색 안전 시간 한도 (s)
+    max_nodes: int = 60000                                                          # 출차 탐색 노드 한도 (PC 무관, 31740 x 1.9)
     max_yaw: float = math.radians(45.0)                                             # 칸 방향과의 최대 각도 (rad)
     entry_gear: int = -1                                                            # 칸에 처음 들어가는 기어
     style:   str = "multi"                                                          # multi / video
@@ -47,9 +49,11 @@ class SlotParams:
     tol_yaw: float = math.radians(1.0)                                              # 정렬 허용 방향 (rad)
     tol_y:   float = 0.004                                                          # 정렬 허용 옆 (m)
     tol_x:   float = 0.015                                                          # 정렬 허용 길이 방향 (m)
-    align_timeout: float = 5.0                                                      # 정렬 탐색 시간 한도 (s)
+    align_timeout: float = 60.0                                                     # 정렬 탐색 안전 시간 한도 (s)
+    align_max_nodes: int = 10000                                                    # 정렬 탐색 노드 한도 (기준 장면 1~2 개)
     align_min: float = 0.012                                                        # 정렬 한 번 움직임 최소 길이 (m)
     keep_lines: bool = False                                                        # True: 앞뒤 이웃 칸도 장애물 (칸 선 넘지 않기)
+    line_margin: float = 0.0                                                        # keep_lines 칸 선 여유 (m, 칸 쪽으로)
 
 
 @dataclass
@@ -97,7 +101,9 @@ def line_boxes(slot, sp):
     """Return the front / rear neighbor slot rectangles (world Obb, line centers) if keep_lines, else []."""
     if not sp.keep_lines:
         return []
-    return [Obb(*slot.to_world((sx, 0.0, 0.0)), sp.length / 2, sp.width / 2) for sx in (-sp.length, sp.length)]
+    m = sp.line_margin                                                              # 이웃 칸 상자를 칸 쪽으로 m 늘림
+    return [Obb(*slot.to_world((sx - math.copysign(m / 2, sx), 0.0, 0.0)), sp.length / 2 + m / 2, sp.width / 2)
+            for sx in (-sp.length, sp.length)]
 
 
 def line_intrusion(pose, slot, sp, op):

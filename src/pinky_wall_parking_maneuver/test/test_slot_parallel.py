@@ -25,6 +25,7 @@ from pinky_wall_parking_maneuver.obstacles import Obstacles                     
 from pinky_wall_parking_maneuver.obstacles import pose_collides                     # 자세 충돌
 from pinky_wall_parking_maneuver.obstacles import robot_obb                         # 내 차체
 from pinky_wall_parking_maneuver.slot_parallel import InSlot                        # 칸 안 경로
+from pinky_wall_parking_maneuver.slot_parallel import line_boxes                    # 이웃 칸 상자
 from pinky_wall_parking_maneuver.slot_parallel import line_intrusion                # 칸 선 침범 깊이
 from pinky_wall_parking_maneuver.slot_parallel import neighbor_boxes                # 이웃 핑키 상자
 from pinky_wall_parking_maneuver.slot_parallel import plan_align                    # 마무리 정렬
@@ -193,3 +194,6 @@ def test_neighbor_boxes_front_only():
     boxes, notes = neighbor_boxes([front, (0.0, 0.0)], slot, sp, ObsParams(), 0.08)
     assert len(boxes) == 1 and math.isclose(boxes[0].yaw, slot.yaw)
     assert "no neighbor" in notes[0] and "5.0 mm away" in notes[1]
+    rear, front = line_boxes(slot, SlotParams(length=0.230, keep_lines=True, line_margin=0.004))  # 칸 선 여유 4 mm
+    edges = [slot.to_slot((b.cx, b.cy, 0.0))[0] + k * b.hl for b, k in ((rear, 1), (front, -1))]  # 칸 쪽 끝
+    assert all(math.isclose(e, v, abs_tol=1e-9) for e, v in zip(edges, (-0.111, 0.111)))

@@ -46,6 +46,7 @@ from pinky_wall_parking_maneuver.obstacles import split_scan                    
 from pinky_wall_parking_maneuver.ros_helpers import compose                         # 자세 곱
 from pinky_wall_parking_maneuver.ros_helpers import path_msg                        # 경로 메시지
 from pinky_wall_parking_maneuver.ros_helpers import scan_points                     # 스캔 점
+from pinky_wall_parking_maneuver.ros_helpers import spin                            # Ctrl+C 처리 spin
 from pinky_wall_parking_maneuver.ros_helpers import twist                           # 속도 명령
 from pinky_wall_parking_maneuver.slot_parallel import line_intrusion                # 칸 선 침범 깊이
 from pinky_wall_parking_maneuver.slot_parallel import neighbor_boxes                # 이웃 핑키 상자
@@ -191,9 +192,7 @@ def main(args=None):
     rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)           # Ctrl+C 뒤에도 발행 가능
     node = SlotParallelNode()
     try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
+        spin(node)                                                                  # Ctrl+C 를 0.1 s 안에 받음
     finally:
         node.halt()                                                                 # Ctrl+C 에도 정지 명령
         node.destroy_node()

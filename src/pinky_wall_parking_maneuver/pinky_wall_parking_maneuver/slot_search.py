@@ -45,7 +45,9 @@ class InSlot:
         curb = -sp.width / 2 + sp.curb_margin - 0.5                                 # 연석 상자 중심 (선 안쪽 여유)
         boxes.append((0.0, curb, 1.0, 0.0, 2.0, 0.5))
         if sp.keep_lines:                                                           # 칸 선 넘지 않기: 앞뒤 이웃 칸 (선 중심)
-            boxes += [(sx, 0.0, 1.0, 0.0, sp.length / 2, sp.width / 2) for sx in (-sp.length, sp.length)]
+            lm = sp.line_margin                                                     # 칸 선 여유 (칸 쪽으로 늘림)
+            boxes += [(sx - math.copysign(lm / 2, sx), 0.0, 1.0, 0.0, sp.length / 2 + lm / 2, sp.width / 2)
+                      for sx in (-sp.length, sp.length)]
         self.boxes, self.top = boxes, top + m                                       # 장애물, 이 위면 빠져나옴
 
     def body(self, p):
@@ -82,12 +84,17 @@ class InSlot:
             out.append((x, y, th))
         return out
 
-    def search(self, start, done, timeout, extra=None, min_n=1):
-        """Breadth-first search from start until done(pts, d, k, node) gives an end index; moves or None."""
+    def search(self, start, done, timeout, max_nodes, extra=None, min_n=1):
+        """Breadth-first search from start until done(pts, d, k, node) gives an end index; moves or None.
+
+        Stops after max_nodes expanded nodes (same result on any PC) or the safety timeout (s).
+        """
         k, sp, seen, video = 1.0 / self.sp.radius, self.sp, set(), self.sp.style == "video"
         q, t0 = deque([(start, 0, None, 0, self.deep(start))]), time.monotonic()    # (자세, 기어, 부모, 전환, 구간 시작 깊음)
-        while q and time.monotonic() - t0 < timeout:
+        self.nodes = 0                                                              # 펼친 노드 수 (진단, PC 와 무관)
+        while q and self.nodes < max_nodes and time.monotonic() - t0 < timeout:
             node = q.popleft()
+            self.nodes += 1
             for d in (1, -1):
                 ch = node[3] + (node[1] != 0 and d != node[1])                      # 기어 전환 수
                 if (not video and d == node[1]) or (video and ch > sp.max_changes):
@@ -128,7 +135,7 @@ class InSlot:
             return i if i is not None and d == -self.sp.entry_gear and node[4] else None
         if self.hit(self.goal):
             return None
-        moves = self.search(self.goal, done, self.sp.timeout)                       # 출차
+        moves = self.search(self.goal, done, self.sp.timeout, self.sp.max_nodes)    # 출차
         if moves is None:
             return None
         out, prev = [], self.goal                                                   # 결과, 이전 끝점
@@ -158,7 +165,7 @@ class InSlot:
         def done(pts, d, k, node):
             ns = lengths(pts, d, k, node[0]) + [len(pts), len(pts) // 2]            # 확인할 끝 점
             return next((n - 1 for n in ns if n >= m and self.aligned(pts[n - 1])), None)
-        moves = self.search(start, done, self.sp.align_timeout, lengths, m)         # 정렬
+        moves = self.search(start, done, self.sp.align_timeout, self.sp.align_max_nodes, lengths, m)  # 정렬
         if moves is None:
             return None
         out, prev = [], start                                                       # 결과, 이전 끝점

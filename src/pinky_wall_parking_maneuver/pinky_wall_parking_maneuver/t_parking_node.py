@@ -32,6 +32,7 @@ from std_srvs.srv import Trigger                                                
 # --- 이 패키지 ---------------------------------------------------------------------
 from pinky_wall_parking_maneuver.car_path import CarParams                          # 차량 파라미터
 from pinky_wall_parking_maneuver.handoff import Handoff                             # 진입 제어로 넘기기
+from pinky_wall_parking_maneuver.ros_helpers import spin                            # Ctrl+C 처리 spin
 from pinky_wall_parking_maneuver.t_parking import Phase                             # 상태 이름
 from pinky_wall_parking_maneuver.t_parking import TParams                           # T자 파라미터
 from pinky_wall_parking_maneuver.t_parking import TParking                          # T자 상태 기계
@@ -166,9 +167,7 @@ def main(args=None):
     rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)           # Ctrl+C 뒤에도 발행 가능
     node = TParkingNode()
     try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
+        spin(node)                                                                  # Ctrl+C 를 0.1 s 안에 받음
     finally:
         node.halt()                                                                 # Ctrl+C 에도 정지 명령
         node.destroy_node()
