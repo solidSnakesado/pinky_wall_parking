@@ -11,6 +11,7 @@
           최근 confirm_k 개 후보가 모두 평균에서 confirm_tol 안이면 확정 (밀려가는 창, 장마다 흔들림을 평균으로 줄임)
       STOP: 정지, settle 초 뒤 그 confirm_k 개의 중심·방향 평균을 goal 로 한 번 발행 -> DONE. max_dist 를 가도 못 찾으면 FAIL (정지)
       칸 side 는 주차 노드 slot_side 와 같아야 함 (다르면 경고). 시뮬 = image_topic camera/image_raw, compressed false
+      slot_length = 표준 칸 길이 (사전 지식, 주차 노드 length 와 같게)
 실행: ros2 run pinky_wall_parking_maneuver slot_search_node --ros-args -p use_sim_time:=true
       ros2 service call /slot_search/start std_srvs/srv/Trigger
 """
@@ -50,6 +51,7 @@ from pinky_wall_parking_maneuver.ros_helpers import compose                     
 from pinky_wall_parking_maneuver.ros_helpers import scan_points                     # 스캔 -> 점
 from pinky_wall_parking_maneuver.ros_helpers import twist                           # 속도 메시지
 from pinky_wall_parking_maneuver.slot_fusion import fuse                            # 칸 융합
+from pinky_wall_parking_maneuver.slot_fusion import FusionParams                    # 칸 규격
 from pinky_wall_parking_maneuver.t_parking_node import yaw_of                       # 쿼터니언 -> yaw
 
 
@@ -67,8 +69,8 @@ class SlotSearchNode(Node):
             ("image_topic", "camera/image_raw"), ("compressed", False), ("image_period", 0.2),
             ("cruise_v", 0.03), ("k_yaw", 1.5), ("max_dist", 0.6), ("need", "cam+lidar"),
             ("confirm_k", 6), ("confirm_tol", 0.005), ("slot_side", 1), ("settle", 0.5),
-            ("laser_yaw_offset_deg", 0.0), ("near_correction", False))}
-        self.op, self.bridge = ObsParams(), CvBridge()
+            ("laser_yaw_offset_deg", 0.0), ("near_correction", False), ("slot_length", 0.230))}
+        self.op, self.fp, self.bridge = ObsParams(), FusionParams(length=p["slot_length"]), CvBridge()
         self.phase, self.odom, self.lidar, self.start = "IDLE", None, None, None    # 상태, odom, 라이다 tf, 출발
         self.map, self.track, self.hits, self.img_t = None, None, [], -1e9          # 지도, 원통, 연속 후보, 영상 시각
         self.dbg_t = -1e9                                                           # 진단 로그 시각
@@ -136,7 +138,7 @@ class SlotSearchNode(Node):
         boxes = [(*local(odom, c), 0.0, hl, hw) for c in cars]                      # 로봇 기준 상자 (방향 = 진행 방향)
         self.map.add(rgb, odom, boxes)
         lines, diag = self.map.lines(), {}
-        self.check(fuse(lines, cars, odom, diag=diag), len(lines), cars, diag)
+        self.check(fuse(lines, cars, odom, self.fp, diag=diag), len(lines), cars, diag)
 
     def check(self, cands, n_lines, cars, diag):
         best = cands[0] if cands else None

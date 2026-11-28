@@ -5,6 +5,7 @@
          slot_parallel/state (String), tf world -> parked_<i> (세워 둔 핑키 정답),
          slot_parallel/goal (PoseStamped, 탐색으로 찾은 칸, 있으면 정답 칸과 비교)
 - 계산 (DRIVE / ALIGN 동안 20 Hz): 칸 선 침범 깊이 (정답 / odom, slot_parallel.line_intrusion),
+         칸 폭 방향 선 (차선 쪽 / 연석 쪽) 넘침 깊이 (정답, slot_parallel.side_overshoot, 최대와 끝 자세),
          이웃 핑키 차체와의 최소 거리 (정답, 겹치면 0), odom 과 정답의 위치·방향 차이 최대
 - 출력 : DONE / STOP / FAIL 때 요약 한 줄 (최종 칸 좌표 차체 중심 x, y, yaw 를 정답과 odom 으로)
 - 파라미터: slot_x, slot_y, slot_yaw_deg, slot_side (정답 칸, slot_parallel_node 와 같은 값, odom 기준) + SlotParams
@@ -30,6 +31,7 @@ from pinky_wall_parking_maneuver.obstacles import obb_overlap                   
 from pinky_wall_parking_maneuver.obstacles import ObsParams                         # 차체 치수
 from pinky_wall_parking_maneuver.obstacles import robot_obb                         # 차체 상자
 from pinky_wall_parking_maneuver.slot_parallel import line_intrusion                # 칸 선 침범 깊이
+from pinky_wall_parking_maneuver.slot_parallel import side_overshoot                # 폭 방향 선 넘침
 from pinky_wall_parking_maneuver.slot_parallel import Slot                          # 칸
 from pinky_wall_parking_maneuver.slot_parallel import SlotParams                    # 칸 파라미터
 from pinky_wall_parking_maneuver.t_parking_node import declare                      # dataclass 파라미터
@@ -77,7 +79,7 @@ class SlotParallelEval(Node):
                                f"length {self.sp.length:.3f}, width {self.sp.width:.3f}")
 
     def reset(self):
-        self.intr_gt = self.intr_odom = 0.0                                         # 침범 최대 (m)
+        self.intr_gt = self.intr_odom = self.over = 0.0                             # 침범, 폭 방향 넘침 최대 (m)
         self.clear = math.inf                                                       # 이웃 최소 거리 (m)
         self.err_xy = self.err_yaw = 0.0                                            # odom 오차 최대
         self.samples = 0
@@ -130,6 +132,7 @@ class SlotParallelEval(Node):
         self.samples += 1
         self.intr_gt   = max(self.intr_gt, line_intrusion(self.gt, self.slot, self.sp, self.op))
         self.intr_odom = max(self.intr_odom, line_intrusion(self.odom, self.slot, self.sp, self.op))
+        self.over      = max(self.over, side_overshoot(self.gt, self.slot, self.sp, self.op))
         me = robot_obb(self.gt, self.op)
         if nbs:
             self.clear = min(self.clear, min(obb_distance(me, b) for b in nbs))
@@ -151,6 +154,8 @@ class SlotParallelEval(Node):
             f"yaw {math.degrees(g[2]):+.2f} deg"
             f" | odom x {o[0] * 1000:+.1f} y {o[1] * 1000:+.1f} mm yaw {math.degrees(o[2]):+.2f} deg"
             f" | intrusion truth {self.intr_gt * 1000:.1f} / odom {self.intr_odom * 1000:.1f} mm"
+            f" | side over max {self.over * 1000:.1f} / end "
+            f"{side_overshoot(self.gt, self.slot, self.sp, self.op) * 1000:.1f} mm"
             f" | neighbor min gap {clear} | odom err max {self.err_xy * 1000:.1f} mm "
             f"{math.degrees(self.err_yaw):.2f} deg ({self.samples} samples)"
             + (f" | found slot {self.slot_error()}" if self.found else ""))

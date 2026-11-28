@@ -132,10 +132,11 @@ class SlotParallelNode(Node):
         return boxes
 
     def plan(self, start, nbs):
-        t, self.nbs = self.now(), nbs                                               # 계획 시작, 이웃
-        self.gears = plan_slot_parallel(start, self.slot, nbs, tuple(self.p["bounds"]), self.cp, self.op, self.sp)
-        self.get_logger().info(f"plan {'ok' if self.gears else 'failed'} in {self.now() - t:.1f} s, "
-                               f"gears {len(self.gears) if self.gears else 0}")
+        t, self.nbs, why = self.now(), nbs, {}                                      # 계획 시작, 이웃, 실패 이유
+        self.gears = plan_slot_parallel(start, self.slot, nbs, tuple(self.p["bounds"]), self.cp, self.op, self.sp,
+                                        why=why)
+        self.get_logger().info(f"plan {'ok' if self.gears else 'failed (' + why['reason'] + ')'} in "
+                               f"{self.now() - t:.1f} s, gears {len(self.gears) if self.gears else 0}")
         self.set_phase("READY" if self.gears else "FAIL")
 
     def on_timer(self):

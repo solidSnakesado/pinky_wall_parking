@@ -82,7 +82,8 @@ def setup(context):
     ev += [Node(package="pinky_wall_parking_maneuver", executable="slot_search_node", name="slot_search",
                 output="screen", remappings=[("scan", scan)],
                 parameters=[{"use_sim_time": True, "slot_side": 1, "laser_yaw_offset_deg": yaw_off,
-                             "near_correction": near, "image_topic": "camera/image_raw"}])] if search else []
+                             "near_correction": near, "image_topic": "camera/image_raw",
+                             "slot_length": float(arg["slot_length"])}])] if search else []
     return [*ev, IncludeLaunchDescription(PythonLaunchDescriptionSource(
                 os.path.join(sim_share, "launch", "scene_sim.launch.py")), launch_arguments=sim_args.items()),
             Node(package="pinky_wall_parking_maneuver", executable="slot_parallel_node", name="slot_parallel",
