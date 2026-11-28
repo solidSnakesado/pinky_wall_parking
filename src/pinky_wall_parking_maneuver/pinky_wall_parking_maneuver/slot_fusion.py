@@ -15,6 +15,8 @@
         서 있지 않을 수 있어 라이다만으로는 칸 경계가 틀릴 수 있음 -> 카메라 나눔 선 정확도를 높인 뒤 다시 정함
       - 후보 순서: check (cam+lidar > cam only > lidar) -> 카메라로 본 앞뒤 변 수 -> 로봇에서 가까운 것
       결과 FusedSlot: 중심, 방향 (로봇 진행 방향 쪽), 길이, 폭, side (+1 = 칸이 진행 방향 오른쪽), 변별 출처 + check
+      diag (dict) 를 넘기면 reason 을 채움: ok / no lane line (나란한 선 수, 가장 긴 길이) / no raw cands (나눔 선 수,
+      칸 띠 안 차 수) / outside lane, car overlap (처음 후보 수, 보인 구간 안 후보 수)
 실행: 라이브러리 (runs/fusion_eval.py, 주차 노드 탐색 모드에서 호출 예정)
 """
 
@@ -93,11 +95,24 @@ def classify(lines, e, n, t0, fp):
     return par, per
 
 
-def fuse(lines, cars, robot, fp=None):
-    """Return FusedSlot candidates (best first) from map lines, neighbor car centers and robot pose (x, y, yaw)."""
+def why(diag, reason, **counts):
+    """Store the reason (and counts) of the last fuse() result in diag, if given."""
+    if diag is not None:
+        diag.clear()
+        diag.update(reason=reason, **counts)
+
+
+def fuse(lines, cars, robot, fp=None, diag=None):
+    """Return FusedSlot candidates (best first) from map lines, neighbor car centers and robot pose (x, y, yaw).
+
+    If diag (dict) is given, it is filled with the reason for the result (see the module docstring).
+    """
     fp = fp or FusionParams()
     fr = frame(lines, robot, fp)
     if fr is None:
+        lim = math.cos(math.radians(fp.lane_deg))
+        along = [s1 - s0 for th, d, s0, s1 in lines if abs(math.cos(th - robot[2])) >= lim]
+        why(diag, "no lane line", along=len(along), longest=round(max(along, default=0.0), 3))
         return []
     e, n, t0, lane = fr
     par, per = classify(lines, e, n, t0, fp)
@@ -116,8 +131,15 @@ def fuse(lines, cars, robot, fp=None):
         if hi - lo >= fp.length:
             mid = (lo + hi) / 2
             cands.append((mid - fp.length / 2, mid + fp.length / 2, "lidar", "lidar"))
-    ok = [q for q in cands if lane[0] - fp.tol_l <= q[0] and q[1] <= lane[1] + fp.tol_l
-          and not any(q[0] - fp.car_hl + fp.overlap < c < q[1] + fp.car_hl - fp.overlap for c in car_s)]
+    if not cands:
+        why(diag, "no raw cands", divs=len(divs), cars=len(car_s))
+        return []
+    in_lane = [q for q in cands if lane[0] - fp.tol_l <= q[0] and q[1] <= lane[1] + fp.tol_l]
+    ok = [q for q in in_lane
+          if not any(q[0] - fp.car_hl + fp.overlap < c < q[1] + fp.car_hl - fp.overlap for c in car_s)]
+    if not ok:
+        why(diag, "car overlap" if in_lane else "outside lane", raw=len(cands), in_lane=len(in_lane))
+        return []
     cam = sorted((q for q in ok if q[2] != "lidar"), key=lambda q: -((q[2] == "cam") + (q[3] == "cam")))
     picked, used = [], set()                                                        # (후보, check)
     for q in (q for q in ok if q[2] == "lidar"):
@@ -139,4 +161,5 @@ def fuse(lines, cars, robot, fp=None):
                       {"lane": "cam", "curb": curb_src, "near": near, "far": far, "check": check})
         if all(math.hypot(f.cx - g.cx, f.cy - g.cy) > fp.tol_l for g in best):
             best.append(f)
+    why(diag, "ok", cands=len(best))
     return best
