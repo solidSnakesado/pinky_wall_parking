@@ -11,7 +11,10 @@
       keep_lines = 앞뒤 이웃 칸 사각형 (나눔 선 중심부터, 연석 선 ~ 차선 쪽 선) 도 장애물 (칸 선 넘지 않기).
         line_margin = 그 사각형을 칸 쪽으로 늘린 여유 (인식·추종 오차 흡수, 장애물 부풀리기). line_intrusion 은 원래 선 기준
       line_intrusion = 차체가 이웃 칸 안으로 들어간 깊이 (칸 띠로 자른 차체 다각형, 주행 감시용).
+      side_overshoot = 차체가 칸 폭 방향 선 (차선 쪽 / 연석 쪽) 을 넘은 깊이 (끝 자세 평가용).
       neighbor_boxes = 앞뒤 이웃 칸 중심 assoc 안의 라이다 원통 -> 이웃 핑키 상자 (칸 방향).
+      max_gears = 전체 기어 수 상한. 넘으면 못 들어가는 칸 (짧은 왕복 수십 번은 추종기가 따라가지 못함:
+        170 mm 칸 + keep_lines 는 칸 안 85 번, 끝 위치 폭 방향 약 40 mm 어긋남). why (dict) 에 실패 이유.
 실행: 라이브러리 (주차 노드, 단위 시험에서 호출).
 """
 
@@ -54,6 +57,7 @@ class SlotParams:
     align_min: float = 0.012                                                        # 정렬 한 번 움직임 최소 길이 (m)
     keep_lines: bool = False                                                        # True: 앞뒤 이웃 칸도 장애물 (칸 선 넘지 않기)
     line_margin: float = 0.0                                                        # keep_lines 칸 선 여유 (m, 칸 쪽으로)
+    max_gears: int = 30                                                             # 전체 기어 수 상한 (230 칸 13, 170 칸 23~24)
 
 
 @dataclass
@@ -78,11 +82,15 @@ class Slot:
         return (c * dx + s * dy, self.side * (-s * dx + c * dy), self.side * a)
 
 
-def plan_slot_parallel(start, slot, neighbors, bounds, car, op, sp=None, hp=None):
-    """Return gears from start into a parallel slot (outside: Hybrid A*, inside: reversed unpark), or None."""
-    sp = sp or SlotParams()                                                         # 칸 파라미터
+def plan_slot_parallel(start, slot, neighbors, bounds, car, op, sp=None, hp=None, why=None):
+    """Return gears from start into a parallel slot (outside: Hybrid A*, inside: reversed unpark), or None.
+
+    If why (dict) is given, why["reason"] says why None was returned (or "ok").
+    """
+    sp, why = sp or SlotParams(), why if why is not None else {}                    # 칸 파라미터, 실패 이유
     inside = InSlot(slot, neighbors, op, sp).park()                                 # 칸 안 경로
-    if inside is None:
+    if inside is None or len(inside) > sp.max_gears:                                # 칸 안만으로 상한을 넘으면 칸 밖은 안 봄
+        why["reason"] = "in-slot not found" if inside is None else f"too many gears (in-slot {len(inside)})"
         return None
     entry = inside[0][0][0]                                                         # 칸 안 경로 시작 자세
     curb = slot.to_world((0.0, -sp.width / 2 + sp.curb_margin - 0.5, 0.0))          # 연석 상자 (선 안쪽 여유)
@@ -91,10 +99,19 @@ def plan_slot_parallel(start, slot, neighbors, bounds, car, op, sp=None, hp=None
     obs = Obstacles(boxes=boxes + [Obb(curb[0], curb[1], slot.yaw, 2.0, 0.5)])      # 칸 밖 장애물
     outside = HybridAStar(obs, bounds, car, op, hp).plan(start, entry, inside[0][1])
     if outside is None:
+        why["reason"] = "outside not found"
         return None
     pts = [(x, y, a, d) for g, d in outside for x, y, a in g]                       # 칸 밖 점
     pts += [(x, y, a, d) for g, d in inside for x, y, a in g[1:]]                   # 칸 안 점
-    return gears_of(pts, car.min_gear)
+    gears = gears_of(pts, car.min_gear)
+    why["reason"] = "ok" if len(gears) <= sp.max_gears else f"too many gears ({len(gears)})"
+    return gears if len(gears) <= sp.max_gears else None
+
+
+def side_overshoot(pose, slot, sp, op):
+    """Return how far (m) the body crosses the lane-side or curb-side line of the slot (0 if inside)."""
+    ys = [slot.to_slot((x, y, 0.0))[1] for x, y in robot_obb(pose, op).corners()]   # 칸 좌표 폭 방향
+    return max(0.0, max(ys) - sp.width / 2, -min(ys) - sp.width / 2)
 
 
 def line_boxes(slot, sp):
