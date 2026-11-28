@@ -45,7 +45,9 @@ class InSlot:
         curb = -sp.width / 2 + sp.curb_margin - 0.5                                 # 연석 상자 중심 (선 안쪽 여유)
         boxes.append((0.0, curb, 1.0, 0.0, 2.0, 0.5))
         if sp.keep_lines:                                                           # 칸 선 넘지 않기: 앞뒤 이웃 칸 (선 중심)
-            boxes += [(sx, 0.0, 1.0, 0.0, sp.length / 2, sp.width / 2) for sx in (-sp.length, sp.length)]
+            lm = sp.line_margin                                                     # 칸 선 여유 (칸 쪽으로 늘림)
+            boxes += [(sx - math.copysign(lm / 2, sx), 0.0, 1.0, 0.0, sp.length / 2 + lm / 2, sp.width / 2)
+                      for sx in (-sp.length, sp.length)]
         self.boxes, self.top = boxes, top + m                                       # 장애물, 이 위면 빠져나옴
 
     def body(self, p):
