@@ -40,7 +40,8 @@ class SlotParams:
     reach:   float = 0.25                                                           # 한 번 움직임 최대 길이 (m)
     key_xy:  float = 0.002                                                          # 같은 상태 판정 x, y (m)
     key_deg: float = 1.0                                                            # 같은 상태 판정 yaw (deg)
-    timeout: float = 40.0                                                           # 출차 탐색 시간 한도 (s)
+    timeout: float = 300.0                                                          # 출차 탐색 안전 시간 한도 (s)
+    max_nodes: int = 60000                                                          # 출차 탐색 노드 한도 (PC 무관, 31740 x 1.9)
     max_yaw: float = math.radians(45.0)                                             # 칸 방향과의 최대 각도 (rad)
     entry_gear: int = -1                                                            # 칸에 처음 들어가는 기어
     style:   str = "multi"                                                          # multi / video
@@ -48,7 +49,8 @@ class SlotParams:
     tol_yaw: float = math.radians(1.0)                                              # 정렬 허용 방향 (rad)
     tol_y:   float = 0.004                                                          # 정렬 허용 옆 (m)
     tol_x:   float = 0.015                                                          # 정렬 허용 길이 방향 (m)
-    align_timeout: float = 5.0                                                      # 정렬 탐색 시간 한도 (s)
+    align_timeout: float = 60.0                                                     # 정렬 탐색 안전 시간 한도 (s)
+    align_max_nodes: int = 10000                                                    # 정렬 탐색 노드 한도 (기준 장면 1~2 개)
     align_min: float = 0.012                                                        # 정렬 한 번 움직임 최소 길이 (m)
     keep_lines: bool = False                                                        # True: 앞뒤 이웃 칸도 장애물 (칸 선 넘지 않기)
     line_margin: float = 0.0                                                        # keep_lines 칸 선 여유 (m, 칸 쪽으로)

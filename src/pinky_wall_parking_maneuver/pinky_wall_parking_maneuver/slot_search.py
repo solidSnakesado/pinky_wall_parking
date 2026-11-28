@@ -84,12 +84,17 @@ class InSlot:
             out.append((x, y, th))
         return out
 
-    def search(self, start, done, timeout, extra=None, min_n=1):
-        """Breadth-first search from start until done(pts, d, k, node) gives an end index; moves or None."""
+    def search(self, start, done, timeout, max_nodes, extra=None, min_n=1):
+        """Breadth-first search from start until done(pts, d, k, node) gives an end index; moves or None.
+
+        Stops after max_nodes expanded nodes (same result on any PC) or the safety timeout (s).
+        """
         k, sp, seen, video = 1.0 / self.sp.radius, self.sp, set(), self.sp.style == "video"
         q, t0 = deque([(start, 0, None, 0, self.deep(start))]), time.monotonic()    # (자세, 기어, 부모, 전환, 구간 시작 깊음)
-        while q and time.monotonic() - t0 < timeout:
+        self.nodes = 0                                                              # 펼친 노드 수 (진단, PC 와 무관)
+        while q and self.nodes < max_nodes and time.monotonic() - t0 < timeout:
             node = q.popleft()
+            self.nodes += 1
             for d in (1, -1):
                 ch = node[3] + (node[1] != 0 and d != node[1])                      # 기어 전환 수
                 if (not video and d == node[1]) or (video and ch > sp.max_changes):
@@ -130,7 +135,7 @@ class InSlot:
             return i if i is not None and d == -self.sp.entry_gear and node[4] else None
         if self.hit(self.goal):
             return None
-        moves = self.search(self.goal, done, self.sp.timeout)                       # 출차
+        moves = self.search(self.goal, done, self.sp.timeout, self.sp.max_nodes)    # 출차
         if moves is None:
             return None
         out, prev = [], self.goal                                                   # 결과, 이전 끝점
@@ -160,7 +165,7 @@ class InSlot:
         def done(pts, d, k, node):
             ns = lengths(pts, d, k, node[0]) + [len(pts), len(pts) // 2]            # 확인할 끝 점
             return next((n - 1 for n in ns if n >= m and self.aligned(pts[n - 1])), None)
-        moves = self.search(start, done, self.sp.align_timeout, lengths, m)         # 정렬
+        moves = self.search(start, done, self.sp.align_timeout, self.sp.align_max_nodes, lengths, m)  # 정렬
         if moves is None:
             return None
         out, prev = [], start                                                       # 결과, 이전 끝점
