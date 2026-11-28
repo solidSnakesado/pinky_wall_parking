@@ -42,8 +42,8 @@ class HaParams:
     switch_cost: float = 0.05                                                       # 기어 전환 비용 (m)
     steer_cost:  float = 0.005                                                      # 조향 변화 비용 (m)
     shot_every:  int = 10                                                           # 분석적 확장 주기 (노드)
-    max_nodes:   int = 30000                                                        # 펼칠 노드 한도
-    timeout:     float = 5.0                                                        # 시간 한도 (s)
+    max_nodes:   int = 8000                                                         # 펼칠 노드 한도 (PC 속도 무관, 3981 x 2)
+    timeout:     float = 60.0                                                       # 안전 시간 한도 (s, 보통은 max_nodes 가 먼저)
 
 
 @dataclass
