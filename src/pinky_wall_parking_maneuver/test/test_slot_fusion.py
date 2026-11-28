@@ -10,6 +10,7 @@
       - 로봇 옆을 지나는 긴 수직 선이 있어도 차선 쪽 선을 고름 (진행 방향과 나란한 선만)
       - 먼 쪽 나눔 선이 라이다 칸과 5 mm 다르면 카메라 (cam+lidar), 20 mm 다르면 라이다 (lidar(cam mismatch))
       - 차선 쪽 선이 6 mm 떨어진 긴 조각 + 로봇 쪽 짧은 조각으로 나뉘어도 한 선으로 묶어 빈 칸을 찾음
+      - diag 이유: ok / no lane line / no raw cands / outside lane / car overlap
 실행: cd ~/pinky_wall_parking && python3 -m pytest -q src/pinky_wall_parking_maneuver/test/test_slot_fusion.py
 """
 
@@ -44,8 +45,8 @@ def div(x):
     return seg((x, -0.26), (x, -0.14))
 
 
-def run(lines, cars=CARS, x=0.3):
-    return fuse(lines, [to_map(c) for c in cars], to_map((x, 0.0)) + (ROT,))        # 로봇: 차선 위, 칸 쪽 진행
+def run(lines, cars=CARS, x=0.3, diag=None):
+    return fuse(lines, [to_map(c) for c in cars], to_map((x, 0.0)) + (ROT,), diag=diag)  # 로봇: 차선 위, 칸 쪽 진행
 
 
 def err(f):
@@ -97,3 +98,15 @@ def test_split_lane_pieces_are_grouped():
     short_piece = seg((0.590, -0.137), (0.748, -0.137))                             # 로봇 쪽 6 mm, 짧음 (0.158 m)
     f = run([long_lane, short_piece, CURB, div(0.715)])[0]
     assert err(f)[0] < 0.003 and f.src["check"] == "cam+lidar"
+
+
+def test_diag_reasons():
+    d = {}
+    assert run([LANE, CURB, div(0.485), div(0.715)], diag=d) and d["reason"] == "ok"
+    assert run([div(0.485), div(0.715)], diag=d) == [] and d == {"reason": "no lane line", "along": 0, "longest": 0.0}
+    assert run([LANE], [], diag=d) == [] and d == {"reason": "no raw cands", "divs": 0, "cars": 0}
+    short_lane = seg((0.255, -0.14), (0.450, -0.14))                                # 보인 구간이 칸 앞에서 끝남
+    assert run([short_lane, div(0.715)], [], diag=d) == []
+    assert d == {"reason": "outside lane", "raw": 2, "in_lane": 0}
+    assert run([LANE, CURB, div(0.485), div(0.715)], CARS + [EMPTY], diag=d) == []  # 칸마다 차
+    assert d["reason"] == "car overlap" and d["in_lane"] > 0

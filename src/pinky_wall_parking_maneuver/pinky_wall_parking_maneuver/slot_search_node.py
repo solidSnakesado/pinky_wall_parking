@@ -135,16 +135,16 @@ class SlotSearchNode(Node):
         cars = self.track.pucks()                                                   # 이웃 차 중심 (odom)
         boxes = [(*local(odom, c), 0.0, hl, hw) for c in cars]                      # 로봇 기준 상자 (방향 = 진행 방향)
         self.map.add(rgb, odom, boxes)
-        lines = self.map.lines()
-        self.check(fuse(lines, cars, odom), len(lines), cars)
+        lines, diag = self.map.lines(), {}
+        self.check(fuse(lines, cars, odom, diag=diag), len(lines), cars, diag)
 
-    def check(self, cands, n_lines, cars):
+    def check(self, cands, n_lines, cars, diag):
         best = cands[0] if cands else None
         if best is None or best.src["check"] != self.p["need"]:
             if self.now() - self.dbg_t >= 1.0:                                      # 진단: 확정에 못 쓰는 경우 (1 초 1 번)
                 self.dbg_t = self.now()
                 what = (f"best ({best.cx:.3f}, {best.cy:.3f}) {best.src['check']}, {len(cands)} cands" if best
-                        else "no candidate")
+                        else "no candidate (" + " ".join(f"{k} {v}" for k, v in diag.items()) + ")")
                 pucks = ", ".join(f"({c[0]:.3f}, {c[1]:.3f})" for c in cars)
                 self.get_logger().info(f"skip: {what} | lines {n_lines} | cars [{pucks}]")
             return
